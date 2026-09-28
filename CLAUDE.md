@@ -68,9 +68,12 @@ the blade; the master holds the BMC and console access.
   it has no `STORMNIC_MLX4_REF` or mlx4 build. The available server1 SOL
   contains ixgbe binding evidence, but no stormnic-mlx4 lines.
 - [x] File the missing mlx4 integration as stormbootx#34.
-- [ ] Move #1 behind stormbootx#34 after recording the build result.
-- [ ] Correct the shipping references, push, and verify the UEFI release
-  build and PE subsystem with sc-build. Keep #1 open until its hardware
+- [x] Move #1 behind stormbootx#34; stormcentral confirmed the item moved
+  back in line (retaining the historical #29 dependency).
+- [x] Correct shipping references, push, and verify with sc-build at
+  a4c8194: release UEFI build and PE subsystem 11 check passed, remote exit 0.
+  The drive was deleted. A local read-only telemetry warning followed success.
+  No runtime change or version bump. Keep #1 open until its hardware
   acceptance evidence exists; this needs no new owner decision.
 
 ### Issue #1 verification follow-up (2026-09-28)

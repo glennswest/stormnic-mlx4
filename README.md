@@ -57,8 +57,8 @@ The output is `stormnic-mlx4.efi`. The approved shipping path (#8) is inside
 stormbootx's `nic-drivers` golden, built from a pinned `STORMNIC_MLX4_REF`.
 That media integration is tracked in
 [stormbootx#34](https://github.com/glennswest/stormbootx/issues/34) and is still
-pending: #29 closed with ixgbe integration only. This repository has no standalone component golden, and sc-build
-retains no artifacts.
+pending: #29 closed with ixgbe integration only. This repository has no
+standalone component golden, and sc-build retains no artifacts.
 
 For manual media assembly, stormbootx's
 `scripts/build-boot-agent.sh --iso --drivers DIR` lays the supplied drivers in
