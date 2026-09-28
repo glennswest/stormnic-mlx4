@@ -55,6 +55,17 @@ the blade; the master holds the BMC and console access.
 
 ## Work plan
 
+### Issue #1 verification follow-up (2026-09-28)
+
+- [x] Read #1 and review open issues. #8 records the owner's decision to build
+  now; #2–#4 remain subsequent implementation work, and #7 tracks logging gaps.
+- [ ] Update shipping docs to the pinned-driver media path approved in #8 and
+  stormbootx#29; this repository still has no standalone golden.
+- [ ] Push, then rerun the release UEFI build and PE subsystem check with sc-build.
+- [ ] Record verification and move #1 behind stormbootx#29 for hardware acceptance.
+  Do not close #1 until the required Supported/Start console evidence exists.
+
+
 - [ ] Driver scaffold: `EFI_DRIVER_BINDING_PROTOCOL` matching 15b3:1003/1007, built as an EFI boot-service driver
   - In progress (#1): `build.rs` links `/subsystem:efi_boot_service_driver`; entry installs the binding via `uefi::driver::install`;
     `Supported` reads vendor/device through our own `EFI_PCI_IO_PROTOCOL` binding (uefi-raw has none) and matches 15b3:1003/1007;
