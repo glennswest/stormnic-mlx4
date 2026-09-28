@@ -56,8 +56,8 @@ sc-build 'cargo build --release --target x86_64-unknown-uefi && scripts/pe-subsy
 The output is `stormnic-mlx4.efi`. The approved shipping path (#8) is inside
 stormbootx's `nic-drivers` golden, built from a pinned `STORMNIC_MLX4_REF`.
 That media integration is tracked in
-[stormbootx#29](https://github.com/glennswest/stormbootx/issues/29) and is still
-pending. This repository has no standalone component golden, and sc-build
+[stormbootx#34](https://github.com/glennswest/stormbootx/issues/34) and is still
+pending: #29 closed with ixgbe integration only. This repository has no standalone component golden, and sc-build
 retains no artifacts.
 
 For manual media assembly, stormbootx's

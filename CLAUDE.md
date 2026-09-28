@@ -38,7 +38,8 @@ the target dir.
 
 No standalone component golden. The owner approved shipping inside stormbootx's
 `nic-drivers` golden from a pinned `STORMNIC_MLX4_REF` (#8; stormbootx#29).
-That integration is still open. Until it lands, `--drivers DIR` is the manual
+The mlx4 integration is tracked in stormbootx#34 (#29 closed with ixgbe only).
+Until it lands, `--drivers DIR` is the manual
 media assembly interface, not a way to retain an sc-build artifact. sc-build
 keeps no image. The media/golden work belongs to stormbootx; do not create a
 persistent build checkout or copy artifacts out of sc-build.
@@ -66,7 +67,8 @@ the blade; the master holds the BMC and console access.
   stormbootx#29 is closed, but its build script only integrates ixgbe;
   it has no `STORMNIC_MLX4_REF` or mlx4 build. The available server1 SOL
   contains ixgbe binding evidence, but no stormnic-mlx4 lines.
-- [ ] File the missing mlx4 integration in stormbootx and move #1 behind it.
+- [x] File the missing mlx4 integration as stormbootx#34.
+- [ ] Move #1 behind stormbootx#34 after recording the build result.
 - [ ] Correct the shipping references, push, and verify the UEFI release
   build and PE subsystem with sc-build. Keep #1 open until its hardware
   acceptance evidence exists; this needs no new owner decision.

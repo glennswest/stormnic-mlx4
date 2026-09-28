@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### 2026-09-28
+- **docs:** Track missing mlx4 media integration in stormbootx#34 after #29 shipped only ixgbe; update shipping references
 - **docs:** Recheck #1 acceptance: stormbootx#29 closed with ixgbe integration only; plan a specific mlx4 media dependency and fresh remote build verification
 - **chore:** Reverified #1 at f077b04 using sc-build: release UEFI build passes and PE subsystem is 11; queued hardware acceptance after stormbootx#29. No runtime changes or version bump
 - **docs:** Align shipping instructions with the owner-approved pinned stormbootx nic-drivers golden and clarify #1 hardware acceptance
