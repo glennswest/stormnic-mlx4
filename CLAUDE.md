@@ -66,8 +66,11 @@ the blade; the master holds the BMC and console access.
   now; #2–#4 remain subsequent implementation work, and #7 tracks logging gaps.
 - [x] Update shipping docs to the pinned-driver media path approved in #8 and
   stormbootx#29; this repository still has no standalone golden.
-- [ ] Push, then rerun the release UEFI build and PE subsystem check with sc-build.
-- [ ] Record verification and move #1 behind stormbootx#29 for hardware acceptance.
+- [x] Push, then rerun the release UEFI build and PE subsystem check with sc-build.
+  Passed at f077b04 on 2026-09-28: release x86_64-unknown-uefi build and
+  scripts/pe-subsystem.sh reported subsystem 11 (remote exit 0).
+- [x] Record verification and move #1 behind stormbootx#29 for hardware acceptance.
+  stormcentral confirmed #1 moved back in line after stormbootx#29.
   Do not close #1 until the required Supported/Start console evidence exists.
 
 - [ ] Driver scaffold: `EFI_DRIVER_BINDING_PROTOCOL` matching 15b3:1003/1007, built as an EFI boot-service driver

@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### 2026-09-28
+- **chore:** Reverified #1 at f077b04 using sc-build: release UEFI build passes and PE subsystem is 11; queued hardware acceptance after stormbootx#29. No runtime changes or version bump
 - **docs:** Align shipping instructions with the owner-approved pinned stormbootx nic-drivers golden and clarify #1 hardware acceptance
 - **docs:** Record the #1 verification follow-up and the approved media dependency; hardware acceptance remains required before closure
 - **docs:** README and CLAUDE.md refreshed from the code: interfaces (driver binding v1 installed, PCI I/O consumed, no configuration/ports/APIs), how it ships (a single `.efi` laid on stormbootx media with `--drivers`, no golden), stormbootx's load order, hermon now opt-in because it hangs server1, every console outcome, and per-job build drives (no shared `CARGO_TARGET_DIR`). Unlogged error paths filed as #7
