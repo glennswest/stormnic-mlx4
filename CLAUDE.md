@@ -60,6 +60,17 @@ the blade; the master holds the BMC and console access.
 
 ## Work plan
 
+### Issue #1 media dependency recheck (2026-09-28)
+
+- [x] Re-read #1, open issues and the current media implementation.
+  stormbootx#29 is closed, but its build script only integrates ixgbe;
+  it has no `STORMNIC_MLX4_REF` or mlx4 build. The available server1 SOL
+  contains ixgbe binding evidence, but no stormnic-mlx4 lines.
+- [ ] File the missing mlx4 integration in stormbootx and move #1 behind it.
+- [ ] Correct the shipping references, push, and verify the UEFI release
+  build and PE subsystem with sc-build. Keep #1 open until its hardware
+  acceptance evidence exists; this needs no new owner decision.
+
 ### Issue #1 verification follow-up (2026-09-28)
 
 - [x] Read #1 and review open issues. #8 records the owner's decision to build

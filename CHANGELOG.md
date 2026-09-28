@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### 2026-09-28
+- **docs:** Recheck #1 acceptance: stormbootx#29 closed with ixgbe integration only; plan a specific mlx4 media dependency and fresh remote build verification
 - **chore:** Reverified #1 at f077b04 using sc-build: release UEFI build passes and PE subsystem is 11; queued hardware acceptance after stormbootx#29. No runtime changes or version bump
 - **docs:** Align shipping instructions with the owner-approved pinned stormbootx nic-drivers golden and clarify #1 hardware acceptance
 - **docs:** Record the #1 verification follow-up and the approved media dependency; hardware acceptance remains required before closure
