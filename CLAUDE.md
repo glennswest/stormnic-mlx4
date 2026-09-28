@@ -30,8 +30,16 @@ sc-build 'cargo build --release --target x86_64-unknown-uefi && scripts/pe-subsy
 ```
 
 The second half checks the image is a boot-service driver (PE subsystem 11).
-dev sets `CARGO_TARGET_DIR` (the shared cargo cache), so the image is not under
-`./target` there.
+Each sc-build job gets its own drive, deleted afterwards, so the image does not
+survive the job; `${CARGO_TARGET_DIR:-target}` finds it wherever the job puts
+the target dir.
+
+## How it ships
+
+Not a stormcentral component: no golden, no release request. The `.efi` goes
+onto stormbootx media by hand (`--drivers DIR`, below) until #5 / stormbootx#27
+wires it into the stormbootx media build. No configuration, ports or APIs; the
+only interface is the driver binding (README, "Interfaces and configuration").
 
 ## Test
 

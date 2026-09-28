@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### 2026-09-28
+- **docs:** README and CLAUDE.md refreshed from the code: interfaces (driver binding v1 installed, PCI I/O consumed, no configuration/ports/APIs), how it ships (a single `.efi` laid on stormbootx media with `--drivers`, no golden), stormbootx's load order, hermon now opt-in because it hangs server1, every console outcome, and per-job build drives (no shared `CARGO_TARGET_DIR`). Unlogged error paths filed as #7
 - **chore:** Driver-binding scaffold (#1) verified to build on dev as a boot-service driver (PE subsystem 11); hardware check pending
 
 ### 2026-09-27

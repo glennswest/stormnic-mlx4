@@ -12,13 +12,17 @@ blades (server1–8) have only legacy option ROMs for their Intel 10G and
 ConnectX-3 ports, so no network handle exists and `EFI_TCP4` never appears
 (stormbootx#26).
 
-stormbootx loads every `*.efi` in `\stormboot\drivers` on its boot media
-before it looks for TCP4. This driver is one of them. The firmware's MNP, IP4
-and TCP4 drivers bind on top of the SNP it installs. There is no PXE, no DHCP
-boot and no network code of its own above the link layer.
+stormbootx runs one `ConnectController` pass so the platform's own drivers
+claim their NICs, then loads and starts every `*.efi` in `\stormboot\drivers`
+on its boot media, then connects every handle again before it looks for TCP4.
+This driver is one of those files. The firmware's MNP, IP4 and TCP4 drivers are
+meant to bind on top of the SNP it installs (once #2–#4 exist). There is no PXE,
+no DHCP boot and no network code of its own above the link layer.
 
 The interim driver is iPXE's `ipxe-hermon.efi` (GPL-2 C, built from pinned
-source). This crate replaces it (stormbootx#27).
+source by stormbootx's `scripts/build-nic-drivers.sh`). It hangs server1's boot,
+so stormbootx now builds it only on request (`IPXE_DRIVERS="intelx hermon"`).
+This crate replaces it (stormbootx#27, #5).
 
 ## Hardware
 
@@ -36,6 +40,24 @@ would make this a GPL derivative, and it is MIT.
 ```bash
 sc-build 'cargo build --release --target x86_64-unknown-uefi && scripts/pe-subsystem.sh "${CARGO_TARGET_DIR:-target}"/x86_64-unknown-uefi/release/stormnic-mlx4.efi'
 ```
+
+## Interfaces and configuration
+
+- **Installs:** `EFI_DRIVER_BINDING_PROTOCOL` on its own image handle
+  (binding version 1, via `uefi::driver::install`). Nothing else yet; no SNP.
+- **Consumes:** `EFI_PCI_IO_PROTOCOL` on the controller (a minimal binding in
+  `src/pci.rs`: config-space dword reads and `GetLocation`), and tests for
+  `EFI_SIMPLE_NETWORK_PROTOCOL` on it.
+- **Configuration:** none. No options, variables, ports or files are read; the
+  PCI IDs it takes are compiled in (`DEVICES` in `src/main.rs`).
+
+## How it ships
+
+One file, `stormnic-mlx4.efi`, from the build above. It is not a stormcentral
+component and has no golden or release artifact: to use it, copy it into the
+directory given to stormbootx's `scripts/build-boot-agent.sh --iso --drivers DIR`,
+which lays it in `\stormboot\drivers` on the media. Wiring it into the
+stormbootx media build in place of `ipxe-hermon.efi` is #5 / stormbootx#27.
 
 ## Status
 
@@ -59,5 +81,12 @@ stormnic-mlx4: 0000:05:00.0 15b3:1003 ConnectX-3:
 stormnic-mlx4: 0000:05:00.0 15b3:1003 ConnectX-3:
   Start: bound; no firmware bring-up yet, releasing the NIC
 ```
+
+The other outcomes print `Supported: already has an SNP, leaving it to the
+platform's driver`, `Supported: no, PCI I/O is held (<status>)`, or
+`Start: cannot claim PCI I/O (<status>)`. Handles that are not a ConnectX-3 are
+rejected silently (the firmware offers every handle in the system).
+`Stop` prints `stormnic-mlx4: Stop` and releases nothing, since `Start` never
+keeps the device.
 
 See CLAUDE.md for the work plan.
