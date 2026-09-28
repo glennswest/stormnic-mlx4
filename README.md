@@ -34,7 +34,7 @@ would make this a GPL derivative, and it is MIT.
 `x86_64-unknown-uefi`, built on dev with `sc-build` after pushing:
 
 ```bash
-sc-build 'cargo build --release --target x86_64-unknown-uefi'
+sc-build 'cargo build --release --target x86_64-unknown-uefi && scripts/pe-subsystem.sh "${CARGO_TARGET_DIR:-target}"/x86_64-unknown-uefi/release/stormnic-mlx4.efi'
 ```
 
 ## Status

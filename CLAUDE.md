@@ -26,8 +26,12 @@ scratch files go in `tmp/`.
 ## Build
 
 ```bash
-sc-build 'cargo build --release --target x86_64-unknown-uefi'
+sc-build 'cargo build --release --target x86_64-unknown-uefi && scripts/pe-subsystem.sh "${CARGO_TARGET_DIR:-target}"/x86_64-unknown-uefi/release/stormnic-mlx4.efi'
 ```
+
+The second half checks the image is a boot-service driver (PE subsystem 11).
+dev sets `CARGO_TARGET_DIR` (the shared cargo cache), so the image is not under
+`./target` there.
 
 ## Test
 
