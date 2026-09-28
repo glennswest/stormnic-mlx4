@@ -53,11 +53,20 @@ sc-build 'cargo build --release --target x86_64-unknown-uefi && scripts/pe-subsy
 
 ## How it ships
 
-One file, `stormnic-mlx4.efi`, from the build above. It is not a stormcentral
-component and has no golden or release artifact: to use it, copy it into the
-directory given to stormbootx's `scripts/build-boot-agent.sh --iso --drivers DIR`,
-which lays it in `\stormboot\drivers` on the media. Wiring it into the
-stormbootx media build in place of `ipxe-hermon.efi` is #5 / stormbootx#27.
+The output is `stormnic-mlx4.efi`. The approved shipping path (#8) is inside
+stormbootx's `nic-drivers` golden, built from a pinned `STORMNIC_MLX4_REF`.
+That media integration is tracked in
+[stormbootx#29](https://github.com/glennswest/stormbootx/issues/29) and is still
+pending. This repository has no standalone component golden, and sc-build
+retains no artifacts.
+
+For manual media assembly, stormbootx's
+`scripts/build-boot-agent.sh --iso --drivers DIR` lays the supplied drivers in
+`\stormboot\drivers`. The #1 hardware check requires this driver on the media
+without `ipxe-hermon.efi`; `ipxe-intelx.efi` can remain because this scaffold
+releases the ConnectX-3. The master handles the media boot and console capture.
+Acceptance requires the install log and `Supported: yes` / `Start: bound` for
+server1's `0000:05:00.0`; passing the build alone does not complete #1.
 
 ## Status
 

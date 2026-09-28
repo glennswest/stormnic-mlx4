@@ -36,10 +36,15 @@ the target dir.
 
 ## How it ships
 
-Not a stormcentral component: no golden, no release request. The `.efi` goes
-onto stormbootx media by hand (`--drivers DIR`, below) until #5 / stormbootx#27
-wires it into the stormbootx media build. No configuration, ports or APIs; the
-only interface is the driver binding (README, "Interfaces and configuration").
+No standalone component golden. The owner approved shipping inside stormbootx's
+`nic-drivers` golden from a pinned `STORMNIC_MLX4_REF` (#8; stormbootx#29).
+That integration is still open. Until it lands, `--drivers DIR` is the manual
+media assembly interface, not a way to retain an sc-build artifact. sc-build
+keeps no image. The media/golden work belongs to stormbootx; do not create a
+persistent build checkout or copy artifacts out of sc-build.
+
+No configuration, ports or APIs; the only interface is the driver binding
+(README, "Interfaces and configuration").
 
 ## Test
 
@@ -59,12 +64,11 @@ the blade; the master holds the BMC and console access.
 
 - [x] Read #1 and review open issues. #8 records the owner's decision to build
   now; #2–#4 remain subsequent implementation work, and #7 tracks logging gaps.
-- [ ] Update shipping docs to the pinned-driver media path approved in #8 and
+- [x] Update shipping docs to the pinned-driver media path approved in #8 and
   stormbootx#29; this repository still has no standalone golden.
 - [ ] Push, then rerun the release UEFI build and PE subsystem check with sc-build.
 - [ ] Record verification and move #1 behind stormbootx#29 for hardware acceptance.
   Do not close #1 until the required Supported/Start console evidence exists.
-
 
 - [ ] Driver scaffold: `EFI_DRIVER_BINDING_PROTOCOL` matching 15b3:1003/1007, built as an EFI boot-service driver
   - In progress (#1): `build.rs` links `/subsystem:efi_boot_service_driver`; entry installs the binding via `uefi::driver::install`;
