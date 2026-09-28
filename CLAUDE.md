@@ -44,6 +44,10 @@ the blade; the master holds the BMC and console access.
 ## Work plan
 
 - [ ] Driver scaffold: `EFI_DRIVER_BINDING_PROTOCOL` matching 15b3:1003/1007, built as an EFI boot-service driver
+  - In progress (#1): `build.rs` links `/subsystem:efi_boot_service_driver`; entry installs the binding via `uefi::driver::install`;
+    `Supported` reads vendor/device through our own `EFI_PCI_IO_PROTOCOL` binding (uefi-raw has none) and matches 15b3:1003/1007;
+    `Start` logs the bind and, until bring-up exists, releases PCI I/O and returns `UNSUPPORTED` so the NIC is left to any other driver.
+    Verify on dev: PE subsystem = 11 (`scripts/pe-subsystem.sh`). Hardware check (server1 05:00.0 Supported/Start in SOL) needs the master.
 - [ ] Firmware command interface from the PRM: HCR commands, QUERY_FW, MAP_FA/RUN_FW, QUERY_DEV_CAP, INIT_HCA, ICM mapping
 - [ ] Ethernet data path: EQ, CQ, one send and one receive QP (raw Ethernet), MAC from QUERY_PORT, port bring-up and link state
 - [ ] `EFI_SIMPLE_NETWORK_PROTOCOL` on a child handle with a MAC device path
