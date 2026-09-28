@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### 2026-09-28
+- **chore:** Driver-binding scaffold (#1) verified to build on dev as a boot-service driver (PE subsystem 11); hardware check pending
+
 ### 2026-09-27
 - **docs:** The documented build runs `scripts/pe-subsystem.sh` on `${CARGO_TARGET_DIR:-target}`, since dev builds into a shared target dir (#6)
 - **feat:** Driver scaffold (#1): linked as an EFI boot-service driver (`build.rs`), installs `EFI_DRIVER_BINDING_PROTOCOL`, and `Supported` matches ConnectX-3 15b3:1003 / ConnectX-3 Pro 15b3:1007 through a minimal `EFI_PCI_IO_PROTOCOL` binding (`src/pci.rs`). A NIC that already has an SNP, or whose PCI I/O another driver holds, is left alone. `Start` logs the bind and returns `UNSUPPORTED` until bring-up exists. `scripts/pe-subsystem.sh` checks that the image is a boot-service driver
