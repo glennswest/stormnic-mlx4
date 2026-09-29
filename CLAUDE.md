@@ -122,6 +122,8 @@ the blade; the master holds the BMC and console access.
     this driver pinned, boots the blade). Pass = SOL shows `INIT_HCA (0x0): ok` … `firmware stopped, memory returned` and
     `Start: firmware check passed`. That run also answers spec section 7 items 1–4 (toggle, ownership/semaphore, revision,
     small profile) and 12 (port type); record them on #2 and in the spec's checklist before starting #3.
+  - 2026-09-29: status posted on #2, stormbootx#34 asked to pin 69efddd+; #2 moved behind stormbootx#34 (stormcentral confirmed).
+    #2 stays open until the server1 SOL shows the pass lines.
 - [ ] Ethernet data path: EQ, CQ, one send and one receive QP (raw Ethernet), MAC from QUERY_PORT, port bring-up and link state
 - [ ] `EFI_SIMPLE_NETWORK_PROTOCOL` on a child handle with a MAC device path
 - [ ] Test on server1's ConnectX-3 port (f4:52:14:84:b7:e0, link up on g16): stormbootx prints `tcp4 : available` with only this driver on the media
