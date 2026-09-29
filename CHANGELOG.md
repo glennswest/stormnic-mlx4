@@ -4,6 +4,9 @@
 
 <!-- New unreleased changes go here -->
 
+### 2026-09-29
+- **docs:** #4 waits on stormbootx#50 (pin v0.2.0 on the rustnic media) for the server1 `tcp4 : available` check
+
 ## [v0.2.0] — 2026-09-29
 
 ### Added
