@@ -92,6 +92,15 @@ the blade; the master holds the BMC and console access.
   stormcentral confirmed #1 moved back in line after stormbootx#29.
   Do not close #1 until the required Supported/Start console evidence exists.
 
+### Issue #1 media ready, hardware boot pending (2026-09-29)
+
+- [x] stormbootx#34 closed: rustnic media pins mlx4@cef8dc5 with no iPXE (golden
+  `golden-stormbootx-rustnic-b4f33d9566d6127e`); OVMF showed `stormnic-mlx4 0.1.0: driver binding installed`.
+- [x] server1 SOL checked 2026-09-29: only the older ixgbe-only run, no stormnic-mlx4 lines. The rustnic boot has not run.
+- [x] Asked the owner/master on #1 to boot server1 from the rustnic golden (one boot also checks #2 and #3);
+  #1 waits in Needs you. Close #1 when the SOL shows `driver binding installed`, `0000:05:00.0 15b3:1003`,
+  `Supported: yes` and `Start: bound; bringing up the firmware` (the old "no firmware bring-up yet" wording is gone).
+
 ### Issue #9 commit Cargo.lock (2026-09-29)
 
 - [x] Generate `Cargo.lock` on dev (no cargo on this VM): `sc-build 'cargo generate-lockfile && cat Cargo.lock'`,
