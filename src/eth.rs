@@ -1,17 +1,15 @@
-//! The Ethernet data path (#3): the objects one port needs, polling send and
-//! receive, and a check that a broadcast frame makes a round trip
-//! (docs/spec/connectx3.md sections 4–6; section numbers in comments are
-//! that document's).
+//! The Ethernet data path: the objects one port needs, and polling send and
+//! receive for the SNP (docs/spec/connectx3.md sections 4–6; section numbers
+//! in comments are that document's).
 //!
-//! `run` creates the shared objects in Linux's order (EQ and MAP_EQ,
-//! CONF_SPECIAL_QP, the physical memory region), then takes each Ethernet
-//! port in turn: CQs, QPs, SET_PORT, INIT_PORT and steering (6.1 steps
-//! 15–27); waits for link; broadcasts a DHCPDISCOVER (and, once an address
-//! has been seen on the wire, an ARP probe for it); logs what comes back; and
-//! takes the port down again. Every object created pushes the command that
-//! takes it back onto the `Hca` undo stack, so teardown runs 6.4's order.
-//! Object numbers are per port (4.1), so #4 can keep both ports up at once.
+//! `open` creates the shared objects in Linux's order (EQ and MAP_EQ,
+//! CONF_SPECIAL_QP, the physical memory region), then brings up every
+//! Ethernet port: CQs, QPs, SET_PORT, INIT_PORT and steering (6.1 steps
+//! 15–27). Every object created pushes the command that takes it back onto
+//! the `Hca` undo stack, so `fw::close` and `fw::quiesce` run 6.4's order.
+//! Object numbers are per port (4.1), so both ports can be up at once.
 
+use alloc::collections::VecDeque;
 use alloc::vec;
 use alloc::vec::Vec;
 use core::sync::atomic::{fence, Ordering};
@@ -47,11 +45,11 @@ const EVENT_MASK: u64 = 1 << 0x04 | 1 << 0x05 | 1 << 0x08 | 1 << 0x09 | 1 << 0x1
 /// CQE opcode of an error completion, and the send opcode (4.7, 5.7).
 const CQE_ERROR: u8 = 0x1e;
 const OP_SEND: u32 = 0x0a;
-/// How long to wait for link after INIT_PORT (5.8), and for a reply.
-const LINK_WAIT_MS: u32 = 10_000;
-const REPLY_WAIT_MS: u32 = 6_000;
-/// Received frames logged one line each, per port.
-const LOG_FRAMES: u32 = 32;
+/// Largest frame the SNP hands over: MTU 1500 + the 14-byte header (5.9).
+pub const MAX_FRAME: usize = 1514;
+/// Sent buffers waiting for `GetStatus` to hand them back; beyond this the
+/// oldest are forgotten (a caller that never asks does not grow the list).
+const DONE_MAX: usize = 1024;
 
 fn ms(n: u32) -> Duration {
     Duration::from_millis(u64::from(n))
@@ -67,20 +65,12 @@ fn set_mtt(m: &Mem, hi: usize, lo: usize, offset: u64) {
     m.set_be32(lo, offset as u32);
 }
 
-struct Mac([u8; 6]);
+pub struct Mac(pub [u8; 6]);
 
 impl core::fmt::Display for Mac {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         let m = &self.0;
         write!(f, "{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}", m[0], m[1], m[2], m[3], m[4], m[5])
-    }
-}
-
-struct Ip([u8; 4]);
-
-impl core::fmt::Display for Ip {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        write!(f, "{}.{}.{}.{}", self.0[0], self.0[1], self.0[2], self.0[3])
     }
 }
 
@@ -117,12 +107,14 @@ struct Eq {
     eqn: u32,
     mem: Mem,
     ci: u32,
+    /// MAP_EQ succeeded: port changes arrive as events (5.8).
+    mapped: bool,
 }
 
 impl Eq {
     /// Consume and log every event, writing the consumer index at least
-    /// every 0x80 entries (4.6).
-    fn poll(&mut self, pci: &mut PciIo) {
+    /// every 0x80 entries (4.6). Port changes update the port's link state.
+    fn poll(&mut self, pci: &mut PciIo, ports: &mut [Port]) {
         let mut n = 0;
         loop {
             let e = self.mem.slice((self.ci % EQ_ENTRIES) as usize * EQE, EQE);
@@ -133,15 +125,18 @@ impl Eq {
             let (kind, sub) = (e.u8(0x01), e.u8(0x03));
             let obj = e.be32(0x04) & 0xff_ffff;
             match kind {
-                0x09 => uefi::println!(
-                    "  event: port {} {}",
-                    e.be32(0x0c) >> 28,
-                    match sub {
-                        1 => "link down",
-                        4 => "link active",
-                        _ => "change",
+                0x09 => {
+                    let num = (e.be32(0x0c) >> 28) as u8;
+                    let up = match sub {
+                        1 => Some(false),
+                        4 => Some(true),
+                        _ => None,
+                    };
+                    match (up, ports.iter_mut().find(|p| p.num == num)) {
+                        (Some(up), Some(p)) => p.set_link(up),
+                        _ => uefi::println!("  event: port {num} change, subtype {sub:#04x}"),
                     }
-                ),
+                }
                 0x04 => uefi::println!(
                     "  event: CQ {obj:#x} error, {}",
                     if e.u8(0x0f) == 1 { "overrun" } else { "access violation" }
@@ -214,12 +209,14 @@ struct Shared {
     sw_cq_init: bool,
 }
 
-/// One port's queues and counters.
-struct Port {
+/// One port's queues, as the SNP uses them.
+pub struct Port {
     num: u8,
     mac: [u8; 6],
+    link_up: bool,
     uar: u32,
     lkey: u32,
+    rx_qpn: u32,
     tx_qpn: u32,
     rx_cq: Cq,
     tx_cq: Cq,
@@ -231,39 +228,99 @@ struct Port {
     tx_bufs: Mem,
     tx_prod: u32,
     tx_done: u32,
-    stats: Stats,
+    /// The caller's buffer for each send slot, and the ones sent (6.2 step 4).
+    tokens: Vec<usize>,
+    done: VecDeque<usize>,
+    /// An error completion put the TX QP in the error state (5.7).
+    tx_broken: bool,
+    /// Multicast MACs attached to the RX QP (B0; never detached).
+    joined: Vec<[u8; 6]>,
 }
 
-#[derive(Default)]
-struct Stats {
-    rx: u32,
-    broadcast: u32,
-    own: u32,
-    dropped: u32,
-    sent: u32,
-    tx_errors: u32,
+/// Every Ethernet port, up, and what they share.
+pub struct Eth {
+    sh: Shared,
+    pub ports: Vec<Port>,
 }
 
-pub fn run(hca: &mut Hca, pci: &mut PciIo, s: &Setup) -> Result<(), Fail> {
+/// Create the shared objects and bring up every Ethernet port (6.1 steps
+/// 15–27). No port at all is `Ok` with an empty list.
+pub fn open(hca: &mut Hca, pci: &mut PciIo, s: &Setup) -> Result<Eth, Fail> {
     if !s.rev3 {
-        uefi::println!("  data path: needs command interface revision 3 (5.5); not started");
-        return Ok(());
+        return Err(fail!("data path: needs command interface revision 3 (5.5)"));
     }
-    let mut sh = shared(hca, pci, s)?;
+    let sh = shared(hca, pci, s)?;
+    let mut eth = Eth { sh, ports: Vec::new() };
     for p in &s.ports {
-        if !is_ethernet(hca, pci, s, p)? {
-            continue;
+        if is_ethernet(hca, pci, s, p)? {
+            let port = port_up(hca, pci, &mut eth.sh, s, p)?;
+            uefi::println!("  port {}: up, link {}", p.num, if port.link_up { "up" } else { "down" });
+            eth.ports.push(port);
         }
-        let mark = hca.mark();
-        let r = check_port(hca, pci, &mut sh, s, p);
-        // Take the port down whatever happened (6.4 steps 1–3).
-        let down = hca.undo_to(pci, mark);
-        sh.eq.poll(pci);
-        r?;
-        down?;
-        uefi::println!("  port {}: closed, QPs reset, CQs returned", p.num);
     }
-    Ok(())
+    Ok(eth)
+}
+
+impl Eth {
+    /// Poll the EQ: port changes and errors (6.3).
+    pub fn poll(&mut self, pci: &mut PciIo) {
+        self.sh.eq.poll(pci, &mut self.ports);
+    }
+
+    /// Port changes arrive as events (MAP_EQ worked); otherwise the caller
+    /// polls QUERY_PORT with `refresh_link`.
+    pub fn events(&self) -> bool {
+        self.sh.eq.mapped
+    }
+
+    /// QUERY_PORT, quietly, for port `i`'s link state (5.8).
+    pub fn refresh_link(&mut self, hca: &mut Hca, pci: &mut PciIo, i: usize) -> Result<(), Fail> {
+        hca.hcr.quiet = true;
+        let r = hca.query_port(pci, self.ports[i].num);
+        hca.hcr.quiet = false;
+        self.ports[i].set_link(r?.link_up);
+        Ok(())
+    }
+
+    /// Wait up to `max_ms` for every port to have link, so the first
+    /// consumer of the SNP does not start on a port still training.
+    pub fn wait_link(&mut self, hca: &mut Hca, pci: &mut PciIo, max_ms: u32) {
+        let mut waited = 0;
+        loop {
+            self.poll(pci);
+            for i in 0..self.ports.len() {
+                if !self.ports[i].link_up && self.refresh_link(hca, pci, i).is_err() {
+                    return;
+                }
+            }
+            if self.ports.iter().all(|p| p.link_up) {
+                uefi::println!("  link up on every Ethernet port after {waited} ms");
+                return;
+            }
+            if waited >= max_ms {
+                for p in self.ports.iter().filter(|p| !p.link_up) {
+                    uefi::println!("  port {}: no link after {} s; reported as no media", p.num, max_ms / 1000);
+                }
+                return;
+            }
+            boot::stall(ms(100));
+            waited += 100;
+        }
+    }
+
+    /// Receive frames sent to multicast `mac` on port `i` (5.4.1). In A0
+    /// mode multicast already reaches the RX QP (5.4.2), so there is nothing
+    /// to do; the SNP filters in software either way.
+    pub fn join(&mut self, hca: &mut Hca, pci: &mut PciIo, i: usize, mac: [u8; 6]) -> Result<(), Fail> {
+        let p = &self.ports[i];
+        if !self.sh.b0 || p.joined.contains(&mac) {
+            return Ok(());
+        }
+        let (num, qpn) = (p.num, p.rx_qpn);
+        attach(hca, pci, &mut self.sh, num, mac, false, qpn)?;
+        self.ports[i].joined.push(mac);
+        Ok(())
+    }
 }
 
 /// 5.1: Ethernet-only ports, and VPI ports the firmware (or SENSE_PORT)
@@ -335,13 +392,19 @@ fn shared(hca: &mut Hca, pci: &mut PciIo, s: &Setup) -> Result<Shared, Fail> {
     let r = hca.hcr.with_in(pci, hcr::SW2HW_EQ, 0, eqn);
     hca.cmd(r)?;
     hca.push_undo(hcr::HW2SW_EQ, 1, eqn, 0);
-    match hca.hcr.imm(pci, hcr::MAP_EQ, 0, eqn, EVENT_MASK) {
-        Ok(_) => hca.push_undo(hcr::MAP_EQ, 0, eqn | 1 << 31, EVENT_MASK),
+    let mapped = match hca.hcr.imm(pci, hcr::MAP_EQ, 0, eqn, EVENT_MASK) {
+        Ok(_) => {
+            hca.push_undo(hcr::MAP_EQ, 0, eqn | 1 << 31, EVENT_MASK);
+            true
+        }
         Err(e) if e.needs_reset() => return hca.cmd(Err(e)),
-        // Linux only warns (4.6); link state is still polled with QUERY_PORT.
-        Err(_) => uefi::println!("  MAP_EQ failed: no port events, polling QUERY_PORT only"),
-    }
-    let eq = Eq { eqn, mem, ci: 0 };
+        // Linux only warns (4.6); link state is then polled with QUERY_PORT.
+        Err(_) => {
+            uefi::println!("  MAP_EQ failed: no port events, polling QUERY_PORT only");
+            false
+        }
+    };
+    let eq = Eq { eqn, mem, ci: 0, mapped };
 
     // 3.12
     let sqpn = s.prof.base_sqpn as u32;
@@ -385,25 +448,6 @@ fn shared(hca: &mut Hca, pci: &mut PciIo, s: &Setup) -> Result<Shared, Fail> {
         port_remap: cap.bmme & (1 << 24) != 0,
         sw_cq_init: cap.flags2 & (1 << 23) != 0,
     })
-}
-
-/// Bring the port up, wait for link, try the round trip.
-fn check_port(hca: &mut Hca, pci: &mut PciIo, sh: &mut Shared, s: &Setup, p: &PortInfo) -> Result<(), Fail> {
-    let mut port = port_up(hca, pci, sh, s, p)?;
-    let mut probe = Probe::new(p.mac);
-    let Some(waited) = wait_link(hca, pci, sh, &mut port, &mut probe)? else {
-        uefi::println!("  port {}: no link after {} s; not tested", p.num, LINK_WAIT_MS / 1000);
-        return Ok(());
-    };
-    uefi::println!("  port {}: link up after {waited} ms", p.num);
-    hca.query_port(pci, p.num)?;
-    round_trip(pci, sh, &mut port, &mut probe);
-    let st = &port.stats;
-    uefi::println!(
-        "  port {}: sent {}, received {} ({} broadcast, {} own frames looped back), dropped {}, send errors {}",
-        p.num, st.sent, st.rx, st.broadcast, st.own, st.dropped, st.tx_errors
-    );
-    Ok(())
 }
 
 /// 6.1 steps 19–27 for one port.
@@ -500,8 +544,10 @@ fn port_up(hca: &mut Hca, pci: &mut PciIo, sh: &mut Shared, s: &Setup, p: &PortI
     Ok(Port {
         num: p.num,
         mac: p.mac,
+        link_up: p.link_up,
         uar: sh.uar,
         lkey: sh.lkey,
+        rx_qpn,
         tx_qpn,
         rx_cq,
         tx_cq,
@@ -512,7 +558,10 @@ fn port_up(hca: &mut Hca, pci: &mut PciIo, sh: &mut Shared, s: &Setup, p: &PortI
         tx_bufs,
         tx_prod: 0,
         tx_done: 0,
-        stats: Stats::default(),
+        tokens: vec![0; TX_TXBBS as usize],
+        done: VecDeque::new(),
+        tx_broken: false,
+        joined: Vec::new(),
     })
 }
 
@@ -710,126 +759,61 @@ fn attach(hca: &mut Hca, pci: &mut PciIo, sh: &mut Shared, port: u8, mac: [u8; 6
     Ok(())
 }
 
-/// Poll QUERY_PORT (quietly) until the link is up (5.8); returns the wait.
-fn wait_link(hca: &mut Hca, pci: &mut PciIo, sh: &mut Shared, port: &mut Port, probe: &mut Probe) -> Result<Option<u32>, Fail> {
-    hca.hcr.quiet = true;
-    let mut waited = 0;
-    let r = loop {
-        match hca.query_port(pci, port.num) {
-            Ok(i) if i.link_up => break Ok(Some(waited)),
-            Ok(_) if waited >= LINK_WAIT_MS => break Ok(None),
-            Ok(_) => {}
-            Err(f) => break Err(f),
-        }
-        port.service(pci, sh, probe);
-        boot::stall(ms(100));
-        waited += 100;
-    };
-    hca.hcr.quiet = false;
-    r
-}
-
-/// Broadcast a DHCPDISCOVER, then listen; once an address has been seen in
-/// someone's ARP request, also broadcast an ARP probe for it.
-fn round_trip(pci: &mut PciIo, sh: &mut Shared, port: &mut Port, probe: &mut Probe) {
-    uefi::println!("  port {}: broadcasting DHCPDISCOVER (xid {:#010x})", port.num, probe.xid);
-    port.send(pci, &probe.discover());
-    let mut arp_sent = None;
-    let mut waited = 0;
-    while probe.reply.is_none() && waited < REPLY_WAIT_MS {
-        port.service(pci, sh, probe);
-        if let Some(ip) = probe.learned {
-            if arp_sent != Some(ip) && waited >= 1000 {
-                uefi::println!("  port {}: broadcasting an ARP probe for {}", port.num, Ip(ip));
-                port.send(pci, &probe.arp(ip));
-                arp_sent = Some(ip);
-            }
-        }
-        boot::stall(ms(10));
-        waited += 10;
-    }
-    port.service(pci, sh, probe);
-    match probe.reply.take() {
-        Some(what) => uefi::println!("  port {}: broadcast round trip ok: {what}", port.num),
-        None => uefi::println!("  port {}: no reply to the broadcast within {} s", port.num, REPLY_WAIT_MS / 1000),
-    }
-}
-
 impl Port {
-    /// Poll the EQ, reclaim sent frames, take every received frame.
-    fn service(&mut self, pci: &mut PciIo, sh: &mut Shared, probe: &mut Probe) {
-        sh.eq.poll(pci);
-        self.reap_tx();
-        let mut frame = [0u8; BUF];
-        while let Some(len) = self.recv(&mut frame) {
-            if let Some(len) = len {
-                self.note(&frame[..len], probe);
-            }
+    pub fn num(&self) -> u8 {
+        self.num
+    }
+
+    pub fn mac(&self) -> [u8; 6] {
+        self.mac
+    }
+
+    pub fn link_up(&self) -> bool {
+        self.link_up
+    }
+
+    fn set_link(&mut self, up: bool) {
+        if up != self.link_up {
+            uefi::println!("stormnic-mlx4: port {}: link {}", self.num, if up { "up" } else { "down" });
+            self.link_up = up;
         }
     }
 
-    /// One received frame into `out` (5.6): `None` when there is none,
-    /// `Some(None)` for one that was dropped.
-    fn recv(&mut self, out: &mut [u8; BUF]) -> Option<Option<usize>> {
-        let e = self.rx_cq.peek()?;
-        let slot = (u32::from(e.be16(0x18)) % RX_ENTRIES) as usize;
-        let r = if e.u8(0x1f) & 0x1f == CQE_ERROR {
-            uefi::println!(
-                "  port {} rx: error completion, syndrome {:#04x} (vendor {:#04x})",
-                self.num,
-                e.u8(0x1b),
-                e.u8(0x1a)
-            );
-            None
-        } else if e.u8(0x13) & 0x10 != 0 {
-            None
-        } else {
-            let len = (e.be32(0x14) as usize).min(BUF);
-            self.rx_bufs.read(slot * BUF, &mut out[..len]);
-            Some(len)
-        };
-        if r.is_none() {
-            self.stats.dropped += 1;
+    /// The next good received frame, left in place: its buffer and length.
+    /// Error and bad-FCS completions on the way are dropped (5.6).
+    pub fn peek_rx(&mut self) -> Option<(Mem, usize)> {
+        loop {
+            let e = self.rx_cq.peek()?;
+            if e.u8(0x1f) & 0x1f == CQE_ERROR {
+                uefi::println!(
+                    "  port {} rx: error completion, syndrome {:#04x} (vendor {:#04x})",
+                    self.num,
+                    e.u8(0x1b),
+                    e.u8(0x1a)
+                );
+            } else if e.u8(0x13) & 0x10 == 0 {
+                let slot = (u32::from(e.be16(0x18)) % RX_ENTRIES) as usize;
+                let len = (e.be32(0x14) as usize).min(BUF);
+                return Some((self.rx_bufs.slice(slot * BUF, BUF), len));
+            }
+            self.pop_rx();
         }
+    }
+
+    /// Is a completion waiting? Only looks, for `WaitForPacket`.
+    pub fn rx_ready(&self) -> bool {
+        self.rx_cq.peek().is_some()
+    }
+
+    /// Done with the frame `peek_rx` returned: consume its completion and
+    /// hand the buffer back to the device.
+    pub fn pop_rx(&mut self) {
         self.rx_cq.pop();
         // The slot's descriptor still names its buffer: reposting it is
         // just advancing the producer counter.
         self.rx_prod = self.rx_prod.wrapping_add(1);
         wmb();
         self.rx_db.set_be32(0, self.rx_prod & 0xffff);
-        Some(r)
-    }
-
-    /// Log a received frame and let the probe look at it.
-    fn note(&mut self, f: &[u8], probe: &mut Probe) {
-        if f.len() < 14 {
-            return;
-        }
-        let st = &mut self.stats;
-        st.rx += 1;
-        let dst: [u8; 6] = f[0..6].try_into().unwrap();
-        let src: [u8; 6] = f[6..12].try_into().unwrap();
-        let own = src == self.mac;
-        if dst == [0xff; 6] {
-            st.broadcast += 1;
-        }
-        if own {
-            st.own += 1;
-        }
-        if st.rx <= LOG_FRAMES {
-            uefi::println!(
-                "  port {} rx: {} bytes {} <- {} type {:04x}{}",
-                self.num,
-                f.len(),
-                Mac(dst),
-                Mac(src),
-                u16::from_be_bytes([f[12], f[13]]),
-                if own { " (own frame, looped back)" } else { "" }
-            );
-        }
-        if !own {
-            probe.see(f);
-        }
     }
 
     /// Reclaim completed sends and stamp their TXBBs (5.7). Every WQE is one
@@ -837,7 +821,7 @@ impl Port {
     fn reap_tx(&mut self) {
         while let Some(e) = self.tx_cq.peek() {
             if e.u8(0x1f) & 0x1f == CQE_ERROR {
-                self.stats.tx_errors += 1;
+                self.tx_broken = true;
                 uefi::println!(
                     "  port {} tx: error completion, syndrome {:#04x} (vendor {:#04x}); the TX QP is now in error",
                     self.num,
@@ -845,20 +829,42 @@ impl Port {
                     e.u8(0x1a)
                 );
             }
+            let slot = (self.tx_done % TX_TXBBS) as usize;
             let owner = (self.tx_done / TX_TXBBS) & 1;
-            self.sq.set_be32((self.tx_done % TX_TXBBS) as usize * TXBB, 0x7fff_ffff | owner << 31);
+            self.sq.set_be32(slot * TXBB, 0x7fff_ffff | owner << 31);
+            if self.done.len() >= DONE_MAX {
+                self.done.pop_front();
+            }
+            self.done.push_back(self.tokens[slot]);
             self.tx_done = self.tx_done.wrapping_add(1);
             self.tx_cq.pop();
         }
     }
 
-    /// Queue one frame (5.7): copy it into the slot's buffer, build a
-    /// control + data segment WQE, hand it over, ring the doorbell.
-    fn send(&mut self, pci: &mut PciIo, frame: &[u8]) -> bool {
+    /// A buffer whose frame has gone out (6.2 step 4).
+    pub fn take_sent(&mut self) -> Option<usize> {
         self.reap_tx();
-        if self.tx_prod.wrapping_sub(self.tx_done) >= TX_TXBBS - HEADROOM - 1 || frame.len() > BUF {
-            uefi::println!("  port {} tx: ring full, frame not sent", self.num);
-            return false;
+        self.done.pop_front()
+    }
+
+    pub fn sent_pending(&mut self) -> bool {
+        self.reap_tx();
+        !self.done.is_empty()
+    }
+
+    /// Queue one frame (5.7): copy it into the slot's buffer, build a
+    /// control + data segment WQE, hand it over, ring the doorbell. `token`
+    /// comes back from `take_sent` once the device has sent it.
+    pub fn send(&mut self, pci: &mut PciIo, frame: &[u8], token: usize) -> Result<(), Send> {
+        self.reap_tx();
+        if self.tx_broken {
+            return Err(Send::Broken);
+        }
+        if frame.len() > BUF {
+            return Err(Send::TooLong);
+        }
+        if self.tx_prod.wrapping_sub(self.tx_done) >= TX_TXBBS - HEADROOM - 1 {
+            return Err(Send::Full);
         }
         let slot = (self.tx_prod % TX_TXBBS) as usize;
         let len = frame.len().max(MIN_FRAME);
@@ -867,6 +873,7 @@ impl Port {
         for i in frame.len()..len {
             b.set_u8(i, 0);
         }
+        self.tokens[slot] = token;
         let w = self.sq.slice(slot * TXBB, TXBB);
         // Data segment: address and key, then the byte count.
         w.set_be32(0x14, self.lkey);
@@ -886,137 +893,18 @@ impl Port {
         wmb();
         // 4.8.6: QPN << 8, big-endian, at UAR + 0x14.
         let off = u64::from(self.uar) * PAGE as u64 + 0x14;
-        if let Err(e) = pci.mem_write32(BAR_UAR, off, (self.tx_qpn << 8).to_be()) {
+        pci.mem_write32(BAR_UAR, off, (self.tx_qpn << 8).to_be()).map_err(|e| {
             uefi::println!("  port {} tx: doorbell write failed ({:?})", self.num, e.status());
-        }
-        self.stats.sent += 1;
-        true
+            Send::Broken
+        })
     }
 }
 
-/// The round-trip check: what was sent and what counts as its answer.
-struct Probe {
-    mac: [u8; 6],
-    xid: u32,
-    /// An IPv4 address seen as the sender of someone's ARP request.
-    learned: Option<[u8; 4]>,
-    reply: Option<alloc::string::String>,
-}
-
-impl Probe {
-    fn new(mac: [u8; 6]) -> Self {
-        let xid = u32::from_be_bytes([mac[2], mac[3], mac[4], mac[5]]) ^ 0x6d6c_7834;
-        Probe { mac, xid, learned: None, reply: None }
-    }
-
-    fn ether(&self, kind: u16, payload: usize) -> Vec<u8> {
-        let mut f = vec![0u8; (14 + payload).max(MIN_FRAME)];
-        f[0..6].fill(0xff);
-        f[6..12].copy_from_slice(&self.mac);
-        f[12..14].copy_from_slice(&kind.to_be_bytes());
-        f
-    }
-
-    /// DHCPDISCOVER from 0.0.0.0:68 to 255.255.255.255:67 with the broadcast
-    /// flag, so the offer comes back as a broadcast too (RFC 2131).
-    fn discover(&self) -> Vec<u8> {
-        const BOOTP: usize = 300;
-        let mut f = self.ether(0x0800, 20 + 8 + BOOTP);
-        let ip = &mut f[14..34];
-        ip[0] = 0x45;
-        ip[2..4].copy_from_slice(&((20 + 8 + BOOTP) as u16).to_be_bytes());
-        ip[8] = 64;
-        ip[9] = 17;
-        ip[16..20].fill(0xff);
-        let sum = checksum(ip);
-        ip[10..12].copy_from_slice(&sum.to_be_bytes());
-        let udp = &mut f[34..42];
-        udp[0..2].copy_from_slice(&68u16.to_be_bytes());
-        udp[2..4].copy_from_slice(&67u16.to_be_bytes());
-        udp[4..6].copy_from_slice(&((8 + BOOTP) as u16).to_be_bytes());
-        let b = &mut f[42..42 + BOOTP];
-        b[0..4].copy_from_slice(&[1, 1, 6, 0]);
-        b[4..8].copy_from_slice(&self.xid.to_be_bytes());
-        b[10] = 0x80;
-        b[28..34].copy_from_slice(&self.mac);
-        b[236..240].copy_from_slice(&[99, 130, 83, 99]);
-        // Message type DISCOVER; ask for subnet mask, router, DNS; end.
-        b[240..249].copy_from_slice(&[53, 1, 1, 55, 3, 1, 3, 6, 255]);
-        f
-    }
-
-    /// ARP probe (RFC 5227): who has `ip`, from sender address 0.0.0.0.
-    fn arp(&self, ip: [u8; 4]) -> Vec<u8> {
-        let mut f = self.ether(0x0806, 28);
-        let a = &mut f[14..42];
-        a[0..8].copy_from_slice(&[0, 1, 8, 0, 6, 4, 0, 1]);
-        a[8..14].copy_from_slice(&self.mac);
-        a[24..28].copy_from_slice(&ip);
-        f
-    }
-
-    /// Is this frame the answer? Learn an address from ARP requests.
-    fn see(&mut self, f: &[u8]) {
-        use core::fmt::Write;
-        let src = Mac(f[6..12].try_into().unwrap());
-        match u16::from_be_bytes([f[12], f[13]]) {
-            0x0806 if f.len() >= 42 => {
-                let a = &f[14..42];
-                let spa: [u8; 4] = a[14..18].try_into().unwrap();
-                match a[7] {
-                    1 if spa != [0; 4] && self.learned.is_none() => self.learned = Some(spa),
-                    2 if a[18..24] == self.mac => {
-                        let mut s = alloc::string::String::new();
-                        let _ = write!(s, "ARP reply: {} is at {src}", Ip(spa));
-                        self.reply = Some(s);
-                    }
-                    _ => {}
-                }
-            }
-            0x0800 if f.len() >= 34 && f[23] == 17 => {
-                let ihl = usize::from(f[14] & 0xf) * 4;
-                let (udp, bootp) = (14 + ihl, 14 + ihl + 8);
-                if f.len() < bootp + 240 || f[udp + 2..udp + 4] != 68u16.to_be_bytes() {
-                    return;
-                }
-                let b = &f[bootp..];
-                if b[0] != 2 || b[4..8] != self.xid.to_be_bytes() {
-                    return;
-                }
-                let yiaddr = Ip(b[16..20].try_into().unwrap());
-                let (mut kind, mut server) = (0u8, None);
-                let mut i = 240;
-                while i + 1 < b.len() && b[i] != 255 {
-                    if b[i] == 0 {
-                        i += 1;
-                        continue;
-                    }
-                    let n = usize::from(b[i + 1]);
-                    match b[i] {
-                        53 if n >= 1 && i + 2 < b.len() => kind = b[i + 2],
-                        54 if n == 4 && i + 6 <= b.len() => server = Some(Ip(b[i + 2..i + 6].try_into().unwrap())),
-                        _ => {}
-                    }
-                    i += 2 + n;
-                }
-                let name = if kind == 2 { "DHCPOFFER" } else { "DHCP reply" };
-                let mut s = alloc::string::String::new();
-                let _ = write!(s, "{name} of {yiaddr} from {src}");
-                if let Some(ip) = server {
-                    let _ = write!(s, " (server {ip})");
-                }
-                self.reply = Some(s);
-            }
-            _ => {}
-        }
-    }
-}
-
-/// The IPv4 header checksum (RFC 791).
-fn checksum(h: &[u8]) -> u16 {
-    let mut sum: u32 = h.chunks(2).map(|c| u32::from(u16::from_be_bytes([c[0], c[1]]))).sum();
-    while sum > 0xffff {
-        sum = (sum & 0xffff) + (sum >> 16);
-    }
-    !(sum as u16)
+/// Why `send` did not queue a frame.
+pub enum Send {
+    /// No room in the ring until completions are reaped.
+    Full,
+    TooLong,
+    /// The TX QP is in the error state, or the doorbell write failed.
+    Broken,
 }

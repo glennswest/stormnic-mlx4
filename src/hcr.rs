@@ -121,6 +121,8 @@ pub struct Hcr {
     pub catas: Option<(u8, u64)>,
     /// Log only failures: for commands repeated in a loop (link polling).
     pub quiet: bool,
+    /// Log nothing: the ExitBootServices teardown (6.4).
+    pub silent: bool,
 }
 
 impl Hcr {
@@ -137,7 +139,7 @@ impl Hcr {
                 return Err(Fail::log("mailbox", e.status()));
             }
         };
-        let mut hcr = Hcr { toggle: 1, inbox, outbox, catas: None, quiet: false };
+        let mut hcr = Hcr { toggle: 1, inbox, outbox, catas: None, quiet: false, silent: false };
         match hcr.read(pci, 0x18) {
             Ok(s) => {
                 let t = (s >> T_SHIFT) & 1;
@@ -238,6 +240,9 @@ impl Hcr {
         out_param: u64,
     ) -> Result<u64, CmdError> {
         let r = self.post(pci, op, op_mod, in_mod, in_param, out_param);
+        if self.silent {
+            return r;
+        }
         match r {
             Ok(_) if self.quiet => {}
             Ok(_) => uefi::println!("  {} ({in_mod:#x}): ok", op.1),

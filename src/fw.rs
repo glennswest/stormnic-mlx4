@@ -1,6 +1,6 @@
 //! Firmware bring-up and teardown: ownership, reset, QUERY_FW, MAP_FA/RUN_FW,
 //! QUERY_DEV_CAP, the ICM profile and mapping, INIT_HCA, and back again
-//! (docs/spec/connectx3.md sections 1 and 3). Section numbers in comments are
+//! (docs/spec/connectx3.md sections 1, 3 and 6.4). Section numbers in comments are
 //! that document's.
 
 use alloc::string::String;
@@ -12,7 +12,6 @@ use uefi::{boot, Status};
 
 use crate::dma::{self, DmaBuf, Mem, PAGE};
 use crate::hcr::{self, CmdError, Hcr, Op, BAR_DCS};
-use crate::eth;
 use crate::pci::{self, PciIo};
 
 /// A step failed; what and why has already been printed.
@@ -58,25 +57,56 @@ pub fn log2(x: u64) -> u32 {
     x.trailing_zeros()
 }
 
-/// Bring the firmware up to INIT_HCA, report what it says, and tear it all
-/// down again, leaving the device as the next driver expects it (reset
-/// state, ownership released, PCI attributes restored). This is the whole of
-/// `Start` until the data path (#3) exists.
-pub fn probe(pci: &mut PciIo) -> Result<(), Fail> {
+/// Bring the device up and keep it (6.1 steps 1–14): memory space and bus
+/// master on, ownership taken, reset, firmware started, INIT_HCA done. On
+/// failure everything is put back (reset state, ownership released, PCI
+/// attributes restored) before returning.
+pub fn open(pci: &mut PciIo) -> Result<(Hca, Setup), Fail> {
     let original = pci.get_attributes().map_err(|e| Fail::log("PCI attributes", e.status()))?;
     let supported = pci.supported_attributes().unwrap_or(0);
     // 1.7 and 0.3: memory space, bus master, 64-bit DMA where offered.
     let want = pci::ATTR_MEMORY | pci::ATTR_BUS_MASTER | (supported & pci::ATTR_DUAL_ADDRESS_CYCLE);
     pci.enable_attributes(want).map_err(|e| Fail::log("enable memory space and bus master", e.status()))?;
-    let r = owned(pci);
-    if let Err(e) = pci.set_attributes(original) {
-        uefi::println!("  restoring PCI attributes {original:#x}: {:?}", e.status());
+    let r = claim(pci).and_then(|()| {
+        let r = start(pci, original);
+        if r.is_err() {
+            release(pci, true);
+        }
+        r
+    });
+    if r.is_err() {
+        restore(pci, original);
     }
     r
 }
 
-/// Claim the device (1.5), run, release it.
-fn owned(pci: &mut PciIo) -> Result<(), Fail> {
+/// Driver Binding `Stop` (6.4): take every object back, stop the firmware,
+/// free its memory, release ownership, restore the PCI attributes. False
+/// when the device had to be reset or its memory had to stay allocated.
+pub fn close(hca: Hca, pci: &mut PciIo) -> bool {
+    let original = hca.original;
+    let ok = hca.teardown(pci);
+    release(pci, true);
+    restore(pci, original);
+    ok
+}
+
+/// ExitBootServices (6.4): the same command teardown as `close`, but silent
+/// and without freeing memory (the notify function may not call memory
+/// services). Then release ownership without the wait and clear bus master.
+/// If a command fails, clearing bus master alone stops the device's DMA.
+pub fn quiesce(hca: &mut Hca, pci: &mut PciIo) {
+    hca.hcr.silent = true;
+    let _ = hca.stop_firmware(pci);
+    hca.broken = true;
+    let _ = pci.mem_write32(BAR_DCS, OWNER, 0);
+    if let Ok(cmd) = pci.read_config16(0x04) {
+        let _ = pci.write_config16(0x04, cmd & !(1 << 2));
+    }
+}
+
+/// Take the ownership semaphore (1.5), with INTx off first (1.7).
+fn claim(pci: &mut PciIo) -> Result<(), Fail> {
     // 1.7: a polling driver: INTx disabled, no MSI.
     if let Ok(cmd) = pci.read_config16(0x04) {
         let _ = pci.write_config16(0x04, cmd | (1 << 10));
@@ -87,18 +117,30 @@ fn owned(pci: &mut PciIo) -> Result<(), Fail> {
         return Err(fail!("ownership semaphore reads {:08x}: another function or driver owns the device; leaving it", u32::from_be(v)));
     }
     uefi::println!("  ownership semaphore read 0: claimed");
-    let r = claimed(pci);
+    Ok(())
+}
+
+/// Give the semaphore back (1.5); `wait` gives the firmware the second it
+/// needs before the next owner reads it.
+fn release(pci: &mut PciIo, wait: bool) {
     match pci.mem_write32(BAR_DCS, OWNER, 0) {
         Ok(()) => {
-            boot::stall(ms(1000));
+            if wait {
+                boot::stall(ms(1000));
+            }
             uefi::println!("  ownership released");
         }
         Err(e) => uefi::println!("  ownership release: {:?}", e.status()),
     }
-    r
 }
 
-fn claimed(pci: &mut PciIo) -> Result<(), Fail> {
+fn restore(pci: &mut PciIo, original: u64) {
+    if let Err(e) = pci.set_attributes(original) {
+        uefi::println!("  restoring PCI attributes {original:#x}: {:?}", e.status());
+    }
+}
+
+fn start(pci: &mut PciIo, original: u64) -> Result<(Hca, Setup), Fail> {
     // 1.6: an option ROM or an earlier driver may have left firmware running.
     reset(pci)?;
     let hcr = Hcr::new(pci)?;
@@ -112,19 +154,17 @@ fn claimed(pci: &mut PciIo) -> Result<(), Fail> {
         broken: false,
         undo: Vec::new(),
         lent: Vec::new(),
+        original,
     };
-    let r = hca.bring_up(pci).and_then(|setup| {
-        uefi::println!("  firmware bring-up complete");
-        eth::run(&mut hca, pci, &setup)
-    });
-    if r.is_ok() {
-        uefi::println!("  data path check complete; no SNP yet (#4), tearing it down");
-    }
-    let clean = hca.teardown(pci);
-    if clean {
-        r
-    } else {
-        Err(Fail)
+    match hca.bring_up(pci) {
+        Ok(setup) => {
+            uefi::println!("  firmware bring-up complete");
+            Ok((hca, setup))
+        }
+        Err(f) => {
+            hca.teardown(pci);
+            Err(f)
+        }
     }
 }
 
@@ -330,6 +370,8 @@ pub struct Hca {
     /// Queue buffers, doorbell records and frame buffers: freed with the
     /// ICM, once the firmware is stopped or the device reset (6.4).
     lent: Vec<DmaBuf>,
+    /// The PCI attributes before `open`, restored by `close`.
+    original: u64,
 }
 
 /// Issue MAP_FA / MAP_ICM_AUX / MAP_ICM for one buffer, 256 entries per
@@ -727,11 +769,10 @@ impl Hca {
         uefi::println!("  board ID: {id}");
     }
 
-    /// CLOSE_HCA, UNMAP_ICM (reverse order), UNMAP_ICM_AUX, UNMAP_FA (3.13),
-    /// then free the memory. If any of those fails, or a command already
-    /// timed out, the device is reset instead (2.8). Memory the firmware may
-    /// still use is never freed. True when everything went back cleanly.
-    fn teardown(mut self, pci: &mut PciIo) -> bool {
+    /// Take back the data path's objects, then CLOSE_HCA, UNMAP_ICM (reverse
+    /// order), UNMAP_ICM_AUX, UNMAP_FA (6.4 steps 1–8, 3.13). Nothing is
+    /// freed. False when a command failed or one had already timed out.
+    fn stop_firmware(&mut self, pci: &mut PciIo) -> bool {
         let mut ok = !self.broken && self.undo_to(pci, 0).is_ok();
         if ok && self.open {
             ok = self.hcr.imm(pci, hcr::CLOSE_HCA, 0, 0, 0).is_ok();
@@ -751,6 +792,15 @@ impl Hca {
         if ok && self.fa.is_some() {
             ok = self.hcr.imm(pci, hcr::UNMAP_FA, 0, 0, 0).is_ok();
         }
+        ok
+    }
+
+    /// `stop_firmware`, then free the memory. If a command failed, or one
+    /// already timed out, the device is reset instead (2.8). Memory the
+    /// firmware may still use is never freed. True when everything went
+    /// back cleanly.
+    fn teardown(mut self, pci: &mut PciIo) -> bool {
+        let ok = self.stop_firmware(pci);
         if !ok {
             uefi::println!("  teardown by command failed; resetting the device instead");
             if reset(pci).is_err() {
