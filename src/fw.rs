@@ -663,7 +663,7 @@ impl Hca {
 
     /// INIT_HCA (3.10).
     fn init_hca(&mut self, pci: &mut PciIo, cap: &DevCap, p: &Profile) -> Result<(), Fail> {
-        let m = &mut self.hcr.inbox;
+        let m = &self.hcr.inbox;
         m.zero();
         m.set_u8(0x000, 2);
         m.set_u8(0x00e, (((log2(CACHE_LINE) - 4) << 5) | 0x10) as u8);
@@ -680,7 +680,7 @@ impl Hca {
         m.set_be32(0x014, flags);
         let t = &p.t;
         // Each base is at least 4 KiB aligned, so its low byte is free for the log.
-        let mut base_log = |base_off: usize, i: usize, log: u32| {
+        let base_log = |base_off: usize, i: usize, log: u32| {
             m.set_be64(base_off, t[i].base);
             m.set_u8(base_off + 7, log as u8);
         };
