@@ -229,7 +229,8 @@ impl Child {
 
     fn port(&mut self) -> &mut eth::Port {
         // SAFETY: the NIC outlives its children.
-        unsafe { &mut (*self.nic).eth.ports[self.port] }
+        let n = unsafe { &mut *self.nic };
+        &mut n.eth.ports[self.port]
     }
 
     fn num(&mut self) -> u8 {
