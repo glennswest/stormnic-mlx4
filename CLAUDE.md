@@ -60,7 +60,7 @@ the blade; the master holds the BMC and console access.
 
 ## Version
 
-`Cargo.toml` → `package.version`. Current: `v0.1.0`.
+`Cargo.toml` → `package.version`. Current: `v0.2.0`.
 
 ## Work plan
 
@@ -162,5 +162,9 @@ the blade; the master holds the BMC and console access.
     command teardown silently, without freeing, releases ownership and clears bus master (bus master only, if a
     command fails). Hardware acceptance: stormbootx prints `tcp4 : available` on server1 with rustnic media pinned
     to this commit or later.
+  - Code done 2026-09-29 (778bc55, ffea25f); sc-build: locked release build with no warnings, PE subsystem 11, clippy
+    clean (one `vec_box` allowed: the boxes keep the SNP addresses fixed). Released as v0.2.0. Remaining: stormbootx
+    pins `STORMNIC_MLX4_REF` to v0.2.0 on the rustnic media (asked on stormbootx#34's successor), the master boots
+    server1; pass = `tcp4 : available` and `port 1 SNP: initialized`. Close #4 on that.
 - [ ] Test on server1's ConnectX-3 port (f4:52:14:84:b7:e0, link up on g16): stormbootx prints `tcp4 : available` with only this driver on the media
 - [ ] Retire `ipxe-hermon.efi` from the stormbootx media (stormbootx#27)

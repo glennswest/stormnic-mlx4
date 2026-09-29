@@ -125,6 +125,8 @@ pub struct Nic {
     pub pci: *mut PciIo,
     pub hca: fw::Hca,
     pub eth: eth::Eth,
+    /// Boxed: each child's SNP address is what the firmware holds.
+    #[allow(clippy::vec_box)]
     children: Vec<Box<snp::Child>>,
     ebs: Event,
     /// ExitBootServices has stopped the device.
