@@ -125,6 +125,15 @@ the blade; the master holds the BMC and console access.
   - 2026-09-29: status posted on #2, stormbootx#34 asked to pin 69efddd+; #2 moved behind stormbootx#34 (stormcentral confirmed).
     #2 stays open until the server1 SOL shows the pass lines.
 - [ ] Ethernet data path: EQ, CQ, one send and one receive QP (raw Ethernet), MAC from QUERY_PORT, port bring-up and link state
+  - Plan (#3, 2026-09-29, from spec sections 4–6): `src/dma.rs` gains a copyable `Mem` view (DmaBuf derefs to it);
+    `src/eth.rs` creates, in Linux's order, EQ (256 × 32 B) + MAP_EQ, CONF_SPECIAL_QP, the physical MPT (L_Key), then per
+    Ethernet port: RX/TX CQs, RX QP (256 × 2 KiB buffers) and TX QP (128 TXBBs), MTT entries written straight into ICM,
+    SET_PORT MAC_TABLE/GENERAL (+RQP_CALC in A0), INIT_PORT, B0 MCG attach (port MAC unicast, broadcast), SET_MCAST_FLTR
+    DISABLE. Every created object pushes its undo command; teardown pops them LIFO before CLOSE_HCA (spec 6.4 order), and
+    all queue memory is freed only after UNMAP_FA or a reset. Self-test per port: wait ≤10 s for link, broadcast a
+    DHCPDISCOVER (and an ARP probe for an address learned from the wire), log every frame for 6 s; pass line
+    `port N: broadcast round trip ok`. Ports are handled one after the other (object numbers are per port, so #4 can keep
+    both up). Still returns `UNSUPPORTED` (no SNP until #4). Hardware acceptance: server1 SOL, same media as #2.
 - [ ] `EFI_SIMPLE_NETWORK_PROTOCOL` on a child handle with a MAC device path
 - [ ] Test on server1's ConnectX-3 port (f4:52:14:84:b7:e0, link up on g16): stormbootx prints `tcp4 : available` with only this driver on the media
 - [ ] Retire `ipxe-hermon.efi` from the stormbootx media (stormbootx#27)
