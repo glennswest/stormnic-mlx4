@@ -89,6 +89,13 @@ the blade; the master holds the BMC and console access.
   stormcentral confirmed #1 moved back in line after stormbootx#29.
   Do not close #1 until the required Supported/Start console evidence exists.
 
+### Issue #9 commit Cargo.lock (2026-09-29)
+
+- [ ] Generate `Cargo.lock` on dev (no cargo on this VM): `sc-build 'cargo generate-lockfile && cat Cargo.lock'`,
+  resolving `uefi` 0.39.x / `uefi-raw` 0.15.x from the existing constraints. Commit it (not in `.gitignore`).
+- [ ] Push, then verify with `sc-build` using `--locked` (release UEFI build + PE subsystem 11 check).
+- [ ] Document `--locked` in README/CLAUDE.md build commands; tell stormbootx#34 it can build locked; close #9.
+
 - [ ] Driver scaffold: `EFI_DRIVER_BINDING_PROTOCOL` matching 15b3:1003/1007, built as an EFI boot-service driver
   - In progress (#1): `build.rs` links `/subsystem:efi_boot_service_driver`; entry installs the binding via `uefi::driver::install`;
     `Supported` reads vendor/device through our own `EFI_PCI_IO_PROTOCOL` binding (uefi-raw has none) and matches 15b3:1003/1007;
