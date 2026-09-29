@@ -10,14 +10,20 @@
 //! A platform's own driver always wins: a NIC that already carries an SNP, or
 //! whose PCI I/O another driver has opened `BY_DRIVER`, is left alone.
 //!
-//! Scaffold: `Start` logs the bind, then releases the NIC and returns
-//! `UNSUPPORTED`, because there is no bring-up yet (#2, #3) and holding the
-//! device without producing an SNP would only keep another driver off it.
+//! `Start` brings the firmware up as far as INIT_HCA (#2, `fw.rs`), logs what
+//! it finds, tears it all down again, releases the NIC and returns
+//! `UNSUPPORTED`: there is no data path yet (#3, #4), and holding the device
+//! without producing an SNP would only keep another driver off it.
+//!
+//! Everything about the hardware comes from `docs/spec/connectx3.md`.
 #![no_main]
 #![no_std]
 
 extern crate alloc;
 
+mod dma;
+mod fw;
+mod hcr;
 mod pci;
 
 use uefi::boot::{self, OpenProtocolAttributes, OpenProtocolParams, ScopedProtocol};
@@ -118,7 +124,11 @@ impl Driver for Mlx4 {
         let loc = pci.location()?;
         let name = model(vendor, device).unwrap_or("?");
         uefi::println!("stormnic-mlx4: {loc} {vendor:04x}:{device:04x} {name}:");
-        uefi::println!("  Start: bound; no firmware bring-up yet, releasing the NIC");
+        uefi::println!("  Start: bound; bringing up the firmware");
+        match fw::probe(&mut pci) {
+            Ok(()) => uefi::println!("  Start: firmware check passed; no data path yet (#3), releasing the NIC"),
+            Err(fw::Fail) => uefi::println!("  Start: firmware check failed, releasing the NIC"),
+        }
         // `pci` drops here, closing the BY_DRIVER open.
         Err(Status::UNSUPPORTED.into())
     }

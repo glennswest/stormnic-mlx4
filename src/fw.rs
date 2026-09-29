@@ -1,0 +1,710 @@
+//! Firmware bring-up and teardown: ownership, reset, QUERY_FW, MAP_FA/RUN_FW,
+//! QUERY_DEV_CAP, the ICM profile and mapping, INIT_HCA, and back again
+//! (docs/spec/connectx3.md sections 1 and 3). Section numbers in comments are
+//! that document's.
+
+use alloc::string::String;
+use alloc::vec::Vec;
+use core::fmt::Write;
+use core::time::Duration;
+
+use uefi::{boot, Status};
+
+use crate::dma::{self, DmaBuf, PAGE};
+use crate::hcr::{self, CmdError, Hcr, Op, BAR_DCS};
+use crate::pci::{self, PciIo};
+
+/// A step failed; what and why has already been printed.
+pub struct Fail;
+
+impl Fail {
+    pub fn log(what: &str, status: Status) -> Fail {
+        uefi::println!("  {what}: {status:?}");
+        Fail
+    }
+}
+
+macro_rules! fail {
+    ($($t:tt)*) => {{
+        uefi::println!("  {}", format_args!($($t)*));
+        Fail
+    }};
+}
+
+/// BAR 0 registers (1.3).
+const OWNER: u64 = 0x8069c;
+const RESET: u64 = 0xf0010;
+const RESET_SEMAPHORE: u64 = 0xf03fc;
+/// The UAR BAR (1.2).
+const BAR_UAR: u8 = 2;
+/// x86 cache line, for INIT_HCA and the MTT reservation (3.10, 4.1).
+const CACHE_LINE: u64 = 64;
+/// MGM entry size, log2 (3.7, Linux default).
+const LOG_MGM_ENTRY: u32 = 10;
+/// Entries per page-list command (3.2).
+const PAGE_LIST_MAX: usize = PAGE / 16;
+
+fn ms(n: u64) -> Duration {
+    Duration::from_millis(n)
+}
+
+fn pow2(x: u64) -> u64 {
+    x.max(1).next_power_of_two()
+}
+
+fn log2(x: u64) -> u32 {
+    x.trailing_zeros()
+}
+
+/// Bring the firmware up to INIT_HCA, report what it says, and tear it all
+/// down again, leaving the device as the next driver expects it (reset
+/// state, ownership released, PCI attributes restored). This is the whole of
+/// `Start` until the data path (#3) exists.
+pub fn probe(pci: &mut PciIo) -> Result<(), Fail> {
+    let original = pci.get_attributes().map_err(|e| Fail::log("PCI attributes", e.status()))?;
+    let supported = pci.supported_attributes().unwrap_or(0);
+    // 1.7 and 0.3: memory space, bus master, 64-bit DMA where offered.
+    let want = pci::ATTR_MEMORY | pci::ATTR_BUS_MASTER | (supported & pci::ATTR_DUAL_ADDRESS_CYCLE);
+    pci.enable_attributes(want).map_err(|e| Fail::log("enable memory space and bus master", e.status()))?;
+    let r = owned(pci);
+    if let Err(e) = pci.set_attributes(original) {
+        uefi::println!("  restoring PCI attributes {original:#x}: {:?}", e.status());
+    }
+    r
+}
+
+/// Claim the device (1.5), run, release it.
+fn owned(pci: &mut PciIo) -> Result<(), Fail> {
+    // 1.7: a polling driver: INTx disabled, no MSI.
+    if let Ok(cmd) = pci.read_config16(0x04) {
+        let _ = pci.write_config16(0x04, cmd | (1 << 10));
+    }
+    // One read takes the semaphore; read it exactly once.
+    let v = pci.mem_read32(BAR_DCS, OWNER).map_err(|e| Fail::log("ownership read", e.status()))?;
+    if v != 0 {
+        return Err(fail!("ownership semaphore reads {:08x}: another function or driver owns the device; leaving it", u32::from_be(v)));
+    }
+    uefi::println!("  ownership semaphore read 0: claimed");
+    let r = claimed(pci);
+    match pci.mem_write32(BAR_DCS, OWNER, 0) {
+        Ok(()) => {
+            boot::stall(ms(1000));
+            uefi::println!("  ownership released");
+        }
+        Err(e) => uefi::println!("  ownership release: {:?}", e.status()),
+    }
+    r
+}
+
+fn claimed(pci: &mut PciIo) -> Result<(), Fail> {
+    // 1.6: an option ROM or an earlier driver may have left firmware running.
+    reset(pci)?;
+    let hcr = Hcr::new(pci)?;
+    let mut hca = Hca { hcr, fa: None, aux: None, icm: Vec::new(), open: false, broken: false };
+    let r = hca.bring_up(pci);
+    if r.is_ok() {
+        uefi::println!("  firmware bring-up complete; no data path yet (#3), tearing it down");
+    }
+    let clean = hca.teardown(pci);
+    if clean {
+        r
+    } else {
+        Err(Fail)
+    }
+}
+
+/// The PCI Express capability's offset, for the reset's restore (1.6).
+fn pcie_cap(pci: &mut PciIo) -> Option<u32> {
+    let mut at = pci.read_config32(0x34).ok()? & 0xfc;
+    for _ in 0..48 {
+        if at == 0 {
+            return None;
+        }
+        let h = pci.read_config16(at).ok()?;
+        if h & 0xff == 0x10 {
+            return Some(at);
+        }
+        at = u32::from(h >> 8) & 0xfc;
+    }
+    None
+}
+
+/// Reset the device and restore its configuration space (1.6).
+fn reset(pci: &mut PciIo) -> Result<(), Fail> {
+    let mut saved = [0u32; 16];
+    for (i, d) in saved.iter_mut().enumerate() {
+        *d = pci.read_config32(i as u32 * 4).map_err(|e| Fail::log("reset: save config", e.status()))?;
+    }
+    let pcie = pcie_cap(pci);
+    let ctl = pcie.and_then(|c| Some((pci.read_config16(c + 0x08).ok()?, pci.read_config16(c + 0x10).ok()?)));
+
+    // The hardware semaphore keeps flash updates out while we reset.
+    let mut waited = 0;
+    loop {
+        match pci.mem_read32(BAR_DCS, RESET_SEMAPHORE) {
+            Ok(0) => break,
+            Ok(v) if waited >= 10_000 => {
+                return Err(fail!("reset: hardware semaphore still {:08x} after 10 s", u32::from_be(v)))
+            }
+            Ok(_) => {}
+            Err(e) => return Err(Fail::log("reset: semaphore read", e.status())),
+        }
+        boot::stall(ms(1));
+        waited += 1;
+    }
+    pci.mem_write32(BAR_DCS, RESET, 1u32.to_be()).map_err(|e| Fail::log("reset: write", e.status()))?;
+    boot::stall(ms(1000));
+
+    let mut back = false;
+    for _ in 0..2000 {
+        if pci.read_config16(0).is_ok_and(|v| v != 0xffff) {
+            back = true;
+            break;
+        }
+        boot::stall(ms(1));
+    }
+    if !back {
+        return Err(fail!("reset: the device did not come back (vendor ID 0xffff after 2 s)"));
+    }
+
+    if let (Some(c), Some((devctl, lnkctl))) = (pcie, ctl) {
+        let _ = pci.write_config16(c + 0x08, devctl);
+        let _ = pci.write_config16(c + 0x10, lnkctl);
+    }
+    for (i, d) in saved.iter().enumerate() {
+        if i != 1 {
+            let _ = pci.write_config32(i as u32 * 4, *d);
+        }
+    }
+    let _ = pci.write_config32(0x04, saved[1]);
+    uefi::println!("  reset: done (semaphore after {waited} ms), config space restored");
+    Ok(())
+}
+
+/// QUERY_FW (3.1).
+struct FwInfo {
+    pages: u64,
+    rev: u16,
+}
+
+/// The QUERY_DEV_CAP fields bring-up uses (3.4), counts already decoded.
+struct DevCap {
+    rsvd_qps: u64,
+    rsvd_srqs: u64,
+    rsvd_cqs: u64,
+    rsvd_eqs: u64,
+    max_eqs: u64,
+    rsvd_mtts: u64,
+    rsvd_mpts: u64,
+    num_sys_eqs: u64,
+    ports: u8,
+    flags: u64,
+    bmme: u32,
+    uar_bytes: u64,
+    /// Entry sizes, indexed like `Profile::t`.
+    entry: [u64; TABLES],
+    max_icm: u64,
+}
+
+impl DevCap {
+    fn flag(&self, bit: u32) -> bool {
+        self.flags & (1 << bit) != 0
+    }
+    /// B0 steering: both VEP steering capabilities (5.4, 3.10).
+    fn b0(&self) -> bool {
+        self.flag(41) && self.flag(42)
+    }
+}
+
+/// The ICM tables (3.7), by index.
+const QPC: usize = 0;
+const RDMARC: usize = 1;
+const ALTC: usize = 2;
+const AUXC: usize = 3;
+const SRQC: usize = 4;
+const CQC: usize = 5;
+const EQC: usize = 6;
+const DMPT: usize = 7;
+const CMPT: usize = 8;
+const MTT: usize = 9;
+const MCG: usize = 10;
+const TABLES: usize = 11;
+const NAMES: [&str; TABLES] = ["QPC", "RDMARC", "ALTC", "AUXC", "SRQC", "CQC", "EQC", "dMPT", "cMPT", "MTT", "MCG"];
+/// RDMA responder entries per QP (3.7, Linux default).
+const RDMARC_PER_QP: u64 = 16;
+
+#[derive(Clone, Copy, Default)]
+struct Table {
+    entry: u64,
+    count: u64,
+    bytes: u64,
+    base: u64,
+}
+
+struct Profile {
+    t: [Table; TABLES],
+    total: u64,
+    /// For the data path (#3): the special QP block (3.12) and the first
+    /// MTT entry the driver may write (4.1).
+    #[allow(dead_code)]
+    base_sqpn: u64,
+    #[allow(dead_code)]
+    first_free_mtt: u64,
+}
+
+/// A range of ICM virtual space and the host memory backing it (3.9).
+struct Icm {
+    virt: u64,
+    buf: DmaBuf,
+}
+
+/// What has been handed to the firmware, so teardown can take it back.
+struct Hca {
+    hcr: Hcr,
+    /// The firmware area, once MAP_FA has been issued (3.2).
+    fa: Option<DmaBuf>,
+    /// The auxiliary ICM pages, once MAP_ICM_AUX has been issued (3.8).
+    aux: Option<DmaBuf>,
+    /// Mapped ICM ranges, in mapping order (3.9).
+    icm: Vec<Icm>,
+    /// INIT_HCA succeeded (3.10).
+    open: bool,
+    /// A command timed out or the HCR stopped answering: reset, don't talk (2.7).
+    broken: bool,
+}
+
+/// Issue MAP_FA / MAP_ICM_AUX / MAP_ICM for one buffer, 256 entries per
+/// command (3.2).
+fn map_pages(hcr: &mut Hcr, pci: &mut PciIo, op: Op, virt: Option<u64>, buf: &DmaBuf) -> Result<(), CmdError> {
+    let mut it = dma::blocks(virt, buf.dev, buf.len() as u64).peekable();
+    while it.peek().is_some() {
+        hcr.inbox.zero();
+        let mut n = 0;
+        for b in it.by_ref().take(PAGE_LIST_MAX) {
+            hcr.inbox.set_be64(n * 16, b.virt);
+            hcr.inbox.set_be64(n * 16 + 8, b.phys | u64::from(b.log - 12));
+            n += 1;
+        }
+        hcr.with_in(pci, op, 0, n as u32)?;
+    }
+    Ok(())
+}
+
+impl Hca {
+    fn cmd<T>(&mut self, r: Result<T, CmdError>) -> Result<T, Fail> {
+        r.map_err(|e| {
+            if e.needs_reset() {
+                self.broken = true;
+            }
+            Fail
+        })
+    }
+
+    fn bring_up(&mut self, pci: &mut PciIo) -> Result<(), Fail> {
+        let fw = self.query_fw(pci)?;
+
+        // 3.2: lend the firmware its memory, then start it.
+        let fa = DmaBuf::new(pci, fw.pages as usize * PAGE).map_err(|e| Fail::log("FW area", e.status()))?;
+        uefi::println!("  FW area: {} KiB at {:#x}", fa.len() / 1024, fa.dev);
+        let fa = self.fa.insert(fa);
+        let r = map_pages(&mut self.hcr, pci, hcr::MAP_FA, None, fa);
+        self.cmd(r)?;
+        let r = self.hcr.imm(pci, hcr::RUN_FW, 0, 0, 0);
+        self.cmd(r)?;
+
+        // 3.3: 4 KiB device pages. Linux only warns when this fails.
+        self.hcr.inbox.zero();
+        self.hcr.inbox.set_u8(0x02, 1);
+        self.hcr.inbox.set_u8(0x03, 0);
+        if let Err(e) = self.hcr.with_in(pci, hcr::MOD_STAT_CFG, 0, 0) {
+            if e.needs_reset() {
+                return self.cmd(Err(e));
+            }
+        }
+
+        let cap = self.query_dev_cap(pci)?;
+        if fw.rev >= 3 {
+            for port in 1..=cap.ports {
+                self.query_port(pci, port)?;
+            }
+        } else {
+            uefi::println!("  command interface revision 2: QUERY_PORT not used");
+        }
+        uefi::println!(
+            "  steering: {} (VEP_UC_STEER {}, VEP_MC_STEER {})",
+            if cap.b0() { "B0" } else { "A0" },
+            cap.flag(41) as u8,
+            cap.flag(42) as u8
+        );
+
+        let prof = profile(&cap)?;
+
+        // 3.8: firmware's auxiliary memory for this ICM size.
+        let r = self.hcr.imm(pci, hcr::SET_ICM_SIZE, 0, 0, prof.total);
+        let aux_pages = self.cmd(r)?;
+        uefi::println!("  SET_ICM_SIZE {:#x}: firmware asks for {aux_pages} auxiliary pages", prof.total);
+        let aux = DmaBuf::new(pci, aux_pages as usize * PAGE).map_err(|e| Fail::log("aux pages", e.status()))?;
+        let aux = self.aux.insert(aux);
+        let r = map_pages(&mut self.hcr, pci, hcr::MAP_ICM_AUX, None, aux);
+        self.cmd(r)?;
+
+        self.map_icm(pci, &prof)?;
+        self.init_hca(pci, &cap, &prof)?;
+
+        if cap.num_sys_eqs != 0 {
+            // 3.11
+            let r = self.hcr.with_out(pci, hcr::QUERY_FUNC, 0, 0);
+            self.cmd(r)?;
+            let o = &self.hcr.outbox;
+            uefi::println!(
+                "  QUERY_FUNC: reserved EQs {}, max EQs {}, reserved UARs {}",
+                o.be16(0x04),
+                o.be16(0x06),
+                o.u8(0x0b) & 0xf
+            );
+        }
+        self.query_adapter(pci);
+        Ok(())
+    }
+
+    fn query_fw(&mut self, pci: &mut PciIo) -> Result<FwInfo, Fail> {
+        match self.hcr.with_out(pci, hcr::QUERY_FW, 0, 0) {
+            Ok(()) => {}
+            Err(CmdError::Status(hcr::STATUS_MULTI_FUNC)) => {
+                return Err(fail!("not the primary physical function; leaving it"))
+            }
+            Err(e) => return self.cmd(Err(e)),
+        }
+        let o = &self.hcr.outbox;
+        let pages = u64::from(o.be16(0x00));
+        let (major, subminor, minor) = (o.be16(0x02), o.be16(0x04), o.be16(0x06));
+        let rev = o.be16(0x0a);
+        let catas_off = o.be64(0x30);
+        let catas_size = o.be32(0x38);
+        let catas_bar = (o.u8(0x3c) >> 6) * 2;
+        uefi::println!(
+            "  firmware {major}.{minor}.{subminor}, command interface revision {rev}, PPF {}, log max commands {}",
+            o.u8(0x09),
+            o.u8(0x0f)
+        );
+        uefi::println!(
+            "  FW area {pages} pages; catastrophic error buffer BAR {catas_bar} + {catas_off:#x}, {catas_size} dwords"
+        );
+        self.hcr.catas = Some((catas_bar, catas_off));
+        if !(2..=3).contains(&rev) {
+            return Err(fail!("command interface revision {rev} is not 2 or 3; stopping"));
+        }
+        Ok(FwInfo { pages, rev })
+    }
+
+    fn query_dev_cap(&mut self, pci: &mut PciIo) -> Result<DevCap, Fail> {
+        let r = self.hcr.with_out(pci, hcr::QUERY_DEV_CAP, 0, 0);
+        self.cmd(r)?;
+        let o = &self.hcr.outbox;
+        // Spec 7 asks for the raw bytes 0x10–0xa7.
+        for line in (0x10..0xa8).step_by(0x20) {
+            let mut s = String::new();
+            for i in line..(line + 0x20).min(0xa8) {
+                let _ = write!(s, " {:02x}", o.u8(i));
+            }
+            uefi::println!("  DEV_CAP {line:02x}:{s}");
+        }
+        let lg = |off: usize, mask: u8| 1u64 << (o.u8(off) & mask);
+        let num_sys_eqs = u64::from(o.be16(0x26) & 0xfff);
+        let rsvd_uars = u64::from(o.u8(0x48) >> 4);
+        let mut rsvd_eqs = lg(0x1e, 0xf);
+        if num_sys_eqs == 0 {
+            rsvd_eqs = rsvd_eqs.max(4 * rsvd_uars);
+        }
+        let mut entry = [0u64; TABLES];
+        for (i, off) in [(QPC, 0x82), (RDMARC, 0x80), (ALTC, 0x86), (AUXC, 0x84), (SRQC, 0x8c), (CQC, 0x8a), (EQC, 0x88), (DMPT, 0x92), (CMPT, 0x8e), (MTT, 0x90)] {
+            entry[i] = u64::from(o.be16(off));
+        }
+        entry[MCG] = 1 << LOG_MGM_ENTRY;
+        let cap = DevCap {
+            rsvd_qps: lg(0x12, 0xf),
+            rsvd_srqs: 1 << (o.u8(0x14) >> 4),
+            rsvd_cqs: lg(0x1a, 0xf),
+            rsvd_eqs,
+            max_eqs: lg(0x1f, 0xf),
+            rsvd_mtts: 1 << (o.u8(0x20) >> 4),
+            rsvd_mpts: lg(0x22, 0xf),
+            num_sys_eqs,
+            ports: o.u8(0x37) & 0xf,
+            flags: o.be64(0x40),
+            bmme: o.be32(0x94),
+            uar_bytes: 1 << ((o.u8(0x49) & 0x3f) + 20),
+            entry,
+            max_icm: o.be64(0xa0),
+        };
+        let log_min_page = o.u8(0x4b);
+        let flags2 = o.be32(0x70);
+        uefi::println!(
+            "  DEV_CAP: {} ports, flags {:016x}, flags2 {flags2:08x}, BMME {:08x}, max ICM {:#x}",
+            cap.ports, cap.flags, cap.bmme, cap.max_icm
+        );
+        uefi::println!(
+            "  reserved: QPs {}, SRQs {}, CQs {}, EQs {} (max {}, sys {}), MTTs {}, MPTs {}, UARs {rsvd_uars}",
+            cap.rsvd_qps, cap.rsvd_srqs, cap.rsvd_cqs, cap.rsvd_eqs, cap.max_eqs, num_sys_eqs, cap.rsvd_mtts, cap.rsvd_mpts
+        );
+        uefi::println!("  SW_CQ_INIT {}, LB_SRC_CHK {}", (flags2 >> 23) & 1, (flags2 >> 19) & 1);
+
+        // 6.1 step 8.
+        if log_min_page > 12 {
+            return Err(fail!("minimum page 2^{log_min_page} is above 4 KiB; stopping"));
+        }
+        if !(1..=2).contains(&cap.ports) {
+            return Err(fail!("{} ports reported; stopping", cap.ports));
+        }
+        let uar_pages = cap.uar_bytes / PAGE as u64;
+        if uar_pages <= 128 {
+            return Err(fail!("UAR area has {uar_pages} pages, 128 or fewer: firmware log2_uar_bar_megabytes too small; stopping"));
+        }
+        match pci.bar_size(BAR_UAR) {
+            Ok(bar) if cap.uar_bytes > bar => {
+                return Err(fail!("UAR area {:#x} is larger than BAR 2 ({bar:#x}); stopping", cap.uar_bytes))
+            }
+            Ok(bar) => uefi::println!("  UAR area {:#x} ({uar_pages} pages), BAR 2 {bar:#x}", cap.uar_bytes),
+            Err(e) => uefi::println!("  UAR area {:#x}; BAR 2 size unknown ({:?})", cap.uar_bytes, e.status()),
+        }
+        Ok(cap)
+    }
+
+    fn query_port(&mut self, pci: &mut PciIo, port: u8) -> Result<(), Fail> {
+        let r = self.hcr.with_out(pci, hcr::QUERY_PORT, 0, u32::from(port));
+        self.cmd(r)?;
+        let o = &self.hcr.outbox;
+        let b0 = o.u8(0x00);
+        let types = match b0 & 3 {
+            1 => "IB",
+            2 => "Ethernet",
+            3 => "IB/Ethernet (VPI)",
+            _ => "none",
+        };
+        let mac: [u8; 6] = core::array::from_fn(|i| o.u8(0x12 + i));
+        uefi::println!(
+            "  port {port}: link {}, supports {types}, suggests {}, MTU cap {}, speed code {:#04x}, log max MACs {}",
+            if b0 & 0x80 != 0 { "up" } else { "down" },
+            if b0 & 0x08 != 0 { "Ethernet" } else { "IB" },
+            o.be16(0x02),
+            o.u8(0x05) & 0x6f,
+            o.u8(0x0a) & 0xf
+        );
+        uefi::println!(
+            "  port {port}: MAC {:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
+            mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]
+        );
+        Ok(())
+    }
+
+    /// MAP_ICM every table up front, in Linux's order (3.9).
+    fn map_icm(&mut self, pci: &mut PciIo, p: &Profile) -> Result<(), Fail> {
+        let c = &p.t[CMPT];
+        let sub = c.entry << 24;
+        let page = |n: u64| n.div_ceil(PAGE as u64) * PAGE as u64;
+        let whole = |i: usize| (NAMES[i], p.t[i].base, p.t[i].bytes);
+        let ranges = [
+            ("cMPT QP", c.base, page(p.t[QPC].count * c.entry)),
+            ("cMPT SRQ", c.base + sub, page(p.t[SRQC].count * c.entry)),
+            ("cMPT CQ", c.base + 2 * sub, page(p.t[CQC].count * c.entry)),
+            ("cMPT EQ", c.base + 3 * sub, page(p.t[EQC].count * c.entry)),
+            whole(EQC),
+            whole(MTT),
+            whole(DMPT),
+            whole(QPC),
+            whole(AUXC),
+            whole(ALTC),
+            whole(RDMARC),
+            whole(CQC),
+            whole(SRQC),
+            whole(MCG),
+        ];
+        let total: u64 = ranges.iter().map(|r| r.2).sum();
+        uefi::println!("  MAP_ICM: {} ranges, {} KiB of host memory", ranges.len(), total / 1024);
+        for (name, virt, bytes) in ranges {
+            let buf = DmaBuf::new(pci, bytes as usize).map_err(|e| Fail::log(name, e.status()))?;
+            let r = map_pages(&mut self.hcr, pci, hcr::MAP_ICM, Some(virt), &buf);
+            // Kept even when the map failed part-way, so teardown unmaps it.
+            self.icm.push(Icm { virt, buf });
+            if r.is_err() {
+                uefi::println!("  MAP_ICM {name} at {virt:#x} failed");
+            }
+            self.cmd(r)?;
+        }
+        Ok(())
+    }
+
+    /// INIT_HCA (3.10).
+    fn init_hca(&mut self, pci: &mut PciIo, cap: &DevCap, p: &Profile) -> Result<(), Fail> {
+        let m = &mut self.hcr.inbox;
+        m.zero();
+        m.set_u8(0x000, 2);
+        m.set_u8(0x00e, (((log2(CACHE_LINE) - 4) << 5) | 0x10) as u8);
+        let mut flags = 1u32; // check port for UD address vectors
+        if cap.flag(7) {
+            flags |= 1 << 3;
+        }
+        if cap.flag(48) {
+            flags |= 1 << 4;
+        }
+        if cap.flag(52) {
+            flags |= 1 << 13;
+        }
+        m.set_be32(0x014, flags);
+        let t = &p.t;
+        // Each base is at least 4 KiB aligned, so its low byte is free for the log.
+        let mut base_log = |base_off: usize, i: usize, log: u32| {
+            m.set_be64(base_off, t[i].base);
+            m.set_u8(base_off + 7, log as u8);
+        };
+        base_log(0x030, QPC, log2(t[QPC].count));
+        base_log(0x048, SRQC, log2(t[SRQC].count));
+        base_log(0x050, CQC, log2(t[CQC].count));
+        let log_eqs = if cap.num_sys_eqs != 0 { 0x1f } else { log2(t[EQC].count) };
+        base_log(0x080, EQC, log_eqs);
+        base_log(0x090, RDMARC, log2(RDMARC_PER_QP));
+        m.set_be64(0x060, t[ALTC].base);
+        m.set_be64(0x070, t[AUXC].base);
+        m.set_be16(0x08a, cap.num_sys_eqs as u16);
+        let log_mcgs = log2(t[MCG].count);
+        m.set_be64(0x0c0, t[MCG].base);
+        m.set_u8(0x0d3, LOG_MGM_ENTRY as u8);
+        m.set_u8(0x0d7, (log_mcgs - 1) as u8);
+        m.set_u8(0x0d8, if cap.b0() { 1 << 3 } else { 0 });
+        m.set_u8(0x0db, log_mcgs as u8);
+        m.set_be64(0x0f0, t[DMPT].base);
+        let windows = cap.flag(16) || cap.bmme & (1 << 9) != 0;
+        m.set_u8(0x0f8, if windows { 0x80 } else { 0 });
+        m.set_u8(0x0fb, log2(t[DMPT].count) as u8);
+        m.set_be64(0x100, t[MTT].base);
+        m.set_be64(0x108, t[CMPT].base);
+        m.set_u8(0x12a, log2(cap.uar_bytes / PAGE as u64) as u8);
+        m.set_u8(0x12b, 0);
+        uefi::println!("  INIT_HCA: flags {flags:#x}, log EQs {log_eqs:#x}, memory windows {}", windows as u8);
+        let r = self.hcr.with_in(pci, hcr::INIT_HCA, 0, 0);
+        self.cmd(r)?;
+        self.open = true;
+        Ok(())
+    }
+
+    /// QUERY_ADAPTER: the board ID, for the log only (3.6).
+    fn query_adapter(&mut self, pci: &mut PciIo) {
+        if self.hcr.with_out(pci, hcr::QUERY_ADAPTER, 0, 0).is_err() {
+            return;
+        }
+        let o = &self.hcr.outbox;
+        const VSD: usize = 0x20;
+        let topspin = o.be16(VSD) == 0x05ad && o.be16(VSD + 0xde) == 0x05ad;
+        let byte = |i: usize| if topspin { o.u8(VSD + 0x20 + i) } else { o.u8(VSD + 0xd0 + (i & !3) + (3 - (i & 3))) };
+        let id: String = (0..16).map(byte).take_while(|&b| b != 0).map(|b| if b.is_ascii_graphic() { b as char } else { '?' }).collect();
+        uefi::println!("  board ID: {id}");
+    }
+
+    /// CLOSE_HCA, UNMAP_ICM (reverse order), UNMAP_ICM_AUX, UNMAP_FA (3.13),
+    /// then free the memory. If any of those fails, or a command already
+    /// timed out, the device is reset instead (2.8). Memory the firmware may
+    /// still use is never freed. True when everything went back cleanly.
+    fn teardown(mut self, pci: &mut PciIo) -> bool {
+        let mut ok = !self.broken;
+        if ok && self.open {
+            ok = self.hcr.imm(pci, hcr::CLOSE_HCA, 0, 0, 0).is_ok();
+        }
+        if ok {
+            for r in self.icm.iter().rev() {
+                let pages = (r.buf.len() / PAGE) as u32;
+                if self.hcr.imm(pci, hcr::UNMAP_ICM, 0, pages, r.virt).is_err() {
+                    ok = false;
+                    break;
+                }
+            }
+        }
+        if ok && self.aux.is_some() {
+            ok = self.hcr.imm(pci, hcr::UNMAP_ICM_AUX, 0, 0, 0).is_ok();
+        }
+        if ok && self.fa.is_some() {
+            ok = self.hcr.imm(pci, hcr::UNMAP_FA, 0, 0, 0).is_ok();
+        }
+        if !ok {
+            uefi::println!("  teardown by command failed; resetting the device instead");
+            if reset(pci).is_err() {
+                // The firmware may still own this memory: leave it allocated.
+                uefi::println!("  device did not reset; its memory stays allocated");
+                core::mem::forget(self);
+                return false;
+            }
+        }
+        // SAFETY: the firmware has given every buffer back (UNMAP_FA) or the
+        // device was reset (1.6, 3.13), and no command is in flight.
+        unsafe {
+            for r in self.icm.drain(..) {
+                r.buf.free(pci);
+            }
+            if let Some(b) = self.aux.take() {
+                b.free(pci);
+            }
+            if let Some(b) = self.fa.take() {
+                b.free(pci);
+            }
+            self.hcr.free(pci);
+        }
+        uefi::println!("  firmware stopped, memory returned");
+        ok
+    }
+}
+
+/// The ICM profile (3.7), with the recommended minimal counts, laid out
+/// the way Linux's `mlx4_make_profile` does: largest table first.
+fn profile(cap: &DevCap) -> Result<Profile, Fail> {
+    for (i, &e) in cap.entry.iter().enumerate() {
+        if !e.is_power_of_two() {
+            return Err(fail!("{} entry size {e} is not a power of two; stopping", NAMES[i]));
+        }
+    }
+    let base_sqpn = pow2(cap.rsvd_qps + 257);
+    let num_qps = 2 * base_sqpn;
+    // 4.1: the reserved MTT span, rounded to the cache line, then to a power of two.
+    let mtt = cap.entry[MTT];
+    let aligned = (cap.rsvd_mtts * mtt).div_ceil(CACHE_LINE) * CACHE_LINE / mtt;
+    let first_free_mtt = pow2(aligned);
+    let num_eqs = if cap.num_sys_eqs != 0 { cap.num_sys_eqs } else { cap.max_eqs.min(128) };
+
+    let mut count = [0u64; TABLES];
+    count[QPC] = num_qps;
+    count[RDMARC] = num_qps * RDMARC_PER_QP;
+    count[ALTC] = num_qps;
+    count[AUXC] = num_qps;
+    count[SRQC] = cap.rsvd_srqs + 1;
+    count[CQC] = (cap.rsvd_cqs + 2).max(64);
+    count[EQC] = num_eqs;
+    count[DMPT] = (cap.rsvd_mpts + 1).max(64);
+    count[CMPT] = 4 << 24;
+    count[MTT] = first_free_mtt + 256;
+    count[MCG] = 256;
+
+    let mut t = [Table::default(); TABLES];
+    for i in 0..TABLES {
+        let c = pow2(count[i]);
+        t[i] = Table { entry: cap.entry[i], count: c, bytes: (c * cap.entry[i]).max(PAGE as u64), base: 0 };
+    }
+    let mut order: [usize; TABLES] = core::array::from_fn(|i| i);
+    order.sort_by(|&a, &b| t[b].bytes.cmp(&t[a].bytes));
+    let mut total = 0u64;
+    for &i in &order {
+        t[i].base = total;
+        total += t[i].bytes;
+    }
+    for &i in &order {
+        uefi::println!(
+            "  ICM {:<6} {:#011x}: {} x {} bytes",
+            NAMES[i], t[i].base, t[i].count, t[i].entry
+        );
+    }
+    uefi::println!("  ICM total {total:#x}; base special QPN {base_sqpn:#x}, first free MTT {first_free_mtt}");
+    if cap.rsvd_eqs >= t[EQC].count {
+        uefi::println!("  note: reserved EQs {} leave no EQ in a {}-entry table (#3)", cap.rsvd_eqs, t[EQC].count);
+    }
+    if total > cap.max_icm {
+        return Err(fail!("ICM total {total:#x} exceeds the device's {:#x}; stopping", cap.max_icm));
+    }
+    Ok(Profile { t, total, base_sqpn, first_free_mtt })
+}
