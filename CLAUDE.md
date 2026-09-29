@@ -134,6 +134,11 @@ the blade; the master holds the BMC and console access.
     DHCPDISCOVER (and an ARP probe for an address learned from the wire), log every frame for 6 s; pass line
     `port N: broadcast round trip ok`. Ports are handled one after the other (object numbers are per port, so #4 can keep
     both up). Still returns `UNSUPPORTED` (no SNP until #4). Hardware acceptance: server1 SOL, same media as #2.
+  - Code done 2026-09-29 (bd7b8f9 + fixes); sc-build: locked release build, PE subsystem 11, 71680 bytes, clippy clean
+    apart from the old `inspect_err` note. Remaining: hardware run on server1 (same rustnic media as #2, pinned to this
+    commit or later). Pass = SOL shows `port N: broadcast round trip ok: ...` for the cabled port, then `firmware stopped,
+    memory returned`. The same log answers spec section 7 items 5–11, 13 and 14; record them on #3 and in the spec.
+    Close #3 on that; #3 waits on stormbootx#34 like #2.
 - [ ] `EFI_SIMPLE_NETWORK_PROTOCOL` on a child handle with a MAC device path
 - [ ] Test on server1's ConnectX-3 port (f4:52:14:84:b7:e0, link up on g16): stormbootx prints `tcp4 : available` with only this driver on the media
 - [ ] Retire `ipxe-hermon.efi` from the stormbootx media (stormbootx#27)

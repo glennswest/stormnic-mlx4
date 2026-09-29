@@ -272,10 +272,20 @@ fn is_ethernet(hca: &mut Hca, pci: &mut PciIo, s: &Setup, p: &PortInfo) -> Resul
     let eth = match p.b0 & 3 {
         2 => true,
         3 if s.cap.flag(12) && s.cap.flag(55) && p.b0 & 0x10 != 0 => {
-            let r = hca.hcr.imm(pci, hcr::SENSE_PORT, 0, u32::from(p.num), 0);
-            let v = hca.cmd(r)?;
-            uefi::println!("  port {}: SENSE_PORT says {}", p.num, match v { 1 => "IB", 2 => "Ethernet", _ => "nothing" });
-            v == 2
+            match hca.hcr.imm(pci, hcr::SENSE_PORT, 0, u32::from(p.num), 0) {
+                Ok(v) => {
+                    let what = match v {
+                        1 => "IB",
+                        2 => "Ethernet",
+                        _ => "nothing",
+                    };
+                    uefi::println!("  port {}: SENSE_PORT says {what}", p.num);
+                    v == 2
+                }
+                Err(e) if e.needs_reset() => return hca.cmd(Err(e)),
+                // Sensing failed: fall back to the firmware's suggestion.
+                Err(_) => p.b0 & 0x08 != 0,
+            }
         }
         3 => p.b0 & 0x08 != 0,
         _ => false,
