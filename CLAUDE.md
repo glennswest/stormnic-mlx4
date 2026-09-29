@@ -26,9 +26,10 @@ scratch files go in `tmp/`.
 ## Build
 
 ```bash
-sc-build 'cargo build --release --target x86_64-unknown-uefi && scripts/pe-subsystem.sh "${CARGO_TARGET_DIR:-target}"/x86_64-unknown-uefi/release/stormnic-mlx4.efi'
+sc-build 'cargo build --locked --release --target x86_64-unknown-uefi && scripts/pe-subsystem.sh "${CARGO_TARGET_DIR:-target}"/x86_64-unknown-uefi/release/stormnic-mlx4.efi'
 ```
 
+`Cargo.lock` is committed (#9); keep `--locked`, and change dependencies only by a deliberate lock update.
 The second half checks the image is a boot-service driver (PE subsystem 11).
 Each sc-build job gets its own drive, deleted afterwards, so the image does not
 survive the job; `${CARGO_TARGET_DIR:-target}` finds it wherever the job puts
@@ -91,8 +92,9 @@ the blade; the master holds the BMC and console access.
 
 ### Issue #9 commit Cargo.lock (2026-09-29)
 
-- [ ] Generate `Cargo.lock` on dev (no cargo on this VM): `sc-build 'cargo generate-lockfile && cat Cargo.lock'`,
+- [x] Generate `Cargo.lock` on dev (no cargo on this VM): `sc-build 'cargo generate-lockfile && cat Cargo.lock'`,
   resolving `uefi` 0.39.x / `uefi-raw` 0.15.x from the existing constraints. Commit it (not in `.gitignore`).
+  Done at 89798b1: uefi 0.39.0, uefi-raw 0.15.1, 17 packages (0.41 is available but outside `0.39`).
 - [ ] Push, then verify with `sc-build` using `--locked` (release UEFI build + PE subsystem 11 check).
 - [ ] Document `--locked` in README/CLAUDE.md build commands; tell stormbootx#34 it can build locked; close #9.
 

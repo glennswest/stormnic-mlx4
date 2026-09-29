@@ -38,8 +38,14 @@ would make this a GPL derivative, and it is MIT.
 `x86_64-unknown-uefi`, built on dev with `sc-build` after pushing:
 
 ```bash
-sc-build 'cargo build --release --target x86_64-unknown-uefi && scripts/pe-subsystem.sh "${CARGO_TARGET_DIR:-target}"/x86_64-unknown-uefi/release/stormnic-mlx4.efi'
+sc-build 'cargo build --locked --release --target x86_64-unknown-uefi && scripts/pe-subsystem.sh "${CARGO_TARGET_DIR:-target}"/x86_64-unknown-uefi/release/stormnic-mlx4.efi'
 ```
+
+`Cargo.lock` is committed and the build uses `--locked`, so a pinned commit
+(stormbootx's `STORMNIC_MLX4_REF`) always builds against the same `uefi` /
+`uefi-raw` versions (#9). To move a dependency, update the lock on purpose
+(`sc-build 'cargo update -p uefi && cat Cargo.lock'`, then commit the result)
+and note it in the changelog.
 
 ## Interfaces and configuration
 

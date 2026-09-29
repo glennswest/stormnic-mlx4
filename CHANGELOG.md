@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### 2026-09-29
+- **build:** Commit `Cargo.lock` (uefi 0.39.0, uefi-raw 0.15.1; generated on dev) and build with `--locked`, so stormbootx's pinned-commit nic-drivers build is reproducible (#9)
 - **docs:** #2 blocked on an owner decision: the ConnectX-3 PRM is not public (support-contract only), so the documentation source for the firmware command interface must be chosen (get the PRM, use the BSD-licensed mlx4 sources with notice, or park). No code change
 
 ### 2026-09-28
