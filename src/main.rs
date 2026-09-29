@@ -10,10 +10,12 @@
 //! A platform's own driver always wins: a NIC that already carries an SNP, or
 //! whose PCI I/O another driver has opened `BY_DRIVER`, is left alone.
 //!
-//! `Start` brings the firmware up as far as INIT_HCA (#2, `fw.rs`), logs what
-//! it finds, tears it all down again, releases the NIC and returns
-//! `UNSUPPORTED`: there is no data path yet (#3, #4), and holding the device
-//! without producing an SNP would only keep another driver off it.
+//! `Start` brings the firmware up as far as INIT_HCA (#2, `fw.rs`), then the
+//! Ethernet data path on each Ethernet port and checks that a broadcast frame
+//! makes a round trip (#3, `eth.rs`). It logs all of it, tears it all down
+//! again, releases the NIC and returns `UNSUPPORTED`: there is no SNP yet
+//! (#4), and holding the device without producing one would only keep
+//! another driver off it.
 //!
 //! Everything about the hardware comes from `docs/spec/connectx3.md`.
 #![no_main]
@@ -22,6 +24,7 @@
 extern crate alloc;
 
 mod dma;
+mod eth;
 mod fw;
 mod hcr;
 mod pci;
@@ -126,8 +129,8 @@ impl Driver for Mlx4 {
         uefi::println!("stormnic-mlx4: {loc} {vendor:04x}:{device:04x} {name}:");
         uefi::println!("  Start: bound; bringing up the firmware");
         match fw::probe(&mut pci) {
-            Ok(()) => uefi::println!("  Start: firmware check passed; no data path yet (#3), releasing the NIC"),
-            Err(fw::Fail) => uefi::println!("  Start: firmware check failed, releasing the NIC"),
+            Ok(()) => uefi::println!("  Start: firmware and data path check done; no SNP yet (#4), releasing the NIC"),
+            Err(fw::Fail) => uefi::println!("  Start: firmware or data path check failed, releasing the NIC"),
         }
         // `pci` drops here, closing the BY_DRIVER open.
         Err(Status::UNSUPPORTED.into())

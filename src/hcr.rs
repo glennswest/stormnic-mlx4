@@ -42,6 +42,27 @@ pub const MAP_ICM_AUX: Op = Op(0xffc, "MAP_ICM_AUX");
 pub const SET_ICM_SIZE: Op = Op(0xffd, "SET_ICM_SIZE");
 pub const UNMAP_FA: Op = Op(0xffe, "UNMAP_FA");
 pub const MAP_FA: Op = Op(0xfff, "MAP_FA");
+// The data path (spec 2.9, sections 4 and 5).
+pub const SET_PORT: Op = Op(0x00c, "SET_PORT");
+pub const INIT_PORT: Op = Op(0x009, "INIT_PORT");
+pub const CLOSE_PORT: Op = Op(0x00a, "CLOSE_PORT");
+pub const SW2HW_MPT: Op = Op(0x00d, "SW2HW_MPT");
+pub const HW2SW_MPT: Op = Op(0x00f, "HW2SW_MPT");
+pub const MAP_EQ: Op = Op(0x012, "MAP_EQ");
+pub const SW2HW_EQ: Op = Op(0x013, "SW2HW_EQ");
+pub const HW2SW_EQ: Op = Op(0x014, "HW2SW_EQ");
+pub const SW2HW_CQ: Op = Op(0x016, "SW2HW_CQ");
+pub const HW2SW_CQ: Op = Op(0x017, "HW2SW_CQ");
+pub const RST2INIT_QP: Op = Op(0x019, "RST2INIT_QP");
+pub const INIT2RTR_QP: Op = Op(0x01a, "INIT2RTR_QP");
+pub const RTR2RTS_QP: Op = Op(0x01b, "RTR2RTS_QP");
+pub const TO_RST_QP: Op = Op(0x021, "2RST_QP");
+pub const CONF_SPECIAL_QP: Op = Op(0x023, "CONF_SPECIAL_QP");
+pub const READ_MCG: Op = Op(0x025, "READ_MCG");
+pub const WRITE_MCG: Op = Op(0x026, "WRITE_MCG");
+pub const MGID_HASH: Op = Op(0x027, "MGID_HASH");
+pub const SET_MCAST_FLTR: Op = Op(0x048, "SET_MCAST_FLTR");
+pub const SENSE_PORT: Op = Op(0x04d, "SENSE_PORT");
 
 /// Command status byte (spec 2.6).
 pub const STATUS_MULTI_FUNC: u8 = 0x50;
@@ -98,6 +119,8 @@ pub struct Hcr {
     pub outbox: DmaBuf,
     /// Catastrophic error buffer (BAR, offset), once QUERY_FW has said (spec 2.8).
     pub catas: Option<(u8, u64)>,
+    /// Log only failures: for commands repeated in a loop (link polling).
+    pub quiet: bool,
 }
 
 impl Hcr {
@@ -114,7 +137,7 @@ impl Hcr {
                 return Err(Fail::log("mailbox", e.status()));
             }
         };
-        let mut hcr = Hcr { toggle: 1, inbox, outbox, catas: None };
+        let mut hcr = Hcr { toggle: 1, inbox, outbox, catas: None, quiet: false };
         match hcr.read(pci, 0x18) {
             Ok(s) => {
                 let t = (s >> T_SHIFT) & 1;
@@ -216,6 +239,7 @@ impl Hcr {
     ) -> Result<u64, CmdError> {
         let r = self.post(pci, op, op_mod, in_mod, in_param, out_param);
         match r {
+            Ok(_) if self.quiet => {}
             Ok(_) => uefi::println!("  {} ({in_mod:#x}): ok", op.1),
             Err(CmdError::Status(s)) => {
                 uefi::println!("  {} ({in_mod:#x}): status {s:#04x}, {}", op.1, status_name(s))
@@ -239,6 +263,12 @@ impl Hcr {
     pub fn with_in(&mut self, pci: &mut PciIo, op: Op, op_mod: u8, in_mod: u32) -> Result<(), CmdError> {
         let a = self.inbox.dev;
         self.run(pci, op, op_mod, in_mod, a, 0).map(|_| ())
+    }
+
+    /// Input mailbox and an immediate output (MGID_HASH).
+    pub fn in_imm(&mut self, pci: &mut PciIo, op: Op, op_mod: u8, in_mod: u32) -> Result<u64, CmdError> {
+        let a = self.inbox.dev;
+        self.run(pci, op, op_mod, in_mod, a, 0)
     }
 
     /// Output mailbox (`self.outbox`, zeroed first; read it afterwards).
