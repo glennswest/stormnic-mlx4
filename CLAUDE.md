@@ -108,7 +108,7 @@ the blade; the master holds the BMC and console access.
     Built on dev 2026-09-28 at 3b1ce49: PE subsystem 11, 23040 bytes. Code side done.
     Remaining (needs the master): stormbootx ISO with this .efi and no ipxe-hermon.efi, boot server1, SOL shows
     `driver binding installed` then `0000:05:00.0 15b3:1003 ConnectX-3:` with `Supported: yes` and `Start: bound`. Close #1 on that.
-- [ ] Firmware command interface from the PRM: HCR commands, QUERY_FW, MAP_FA/RUN_FW, QUERY_DEV_CAP, INIT_HCA, ICM mapping
+- [ ] Firmware command interface (from the spec): HCR commands, QUERY_FW, MAP_FA/RUN_FW, QUERY_DEV_CAP, INIT_HCA, ICM mapping
   - Owner decided 2026-09-29: implement from `docs/spec/connectx3.md` (merged, #10), BSD notice in `NOTICE`.
   - Plan (#2, in progress): `src/pci.rs` gains BAR MMIO, config writes, AllocateBuffer/Map/Unmap/FreeBuffer, Attributes,
     GetBarAttributes; `src/dma.rs` DMA common buffers + page-list splitting (spec 3.2); `src/hcr.rs` HCR protocol (2.x);
@@ -117,6 +117,11 @@ the blade; the master holds the BMC and console access.
     `Start` runs bring-up to INIT_HCA, logs it all (section 7 items), tears it down (CLOSE_HCA, UNMAP_*, release
     ownership, restore PCI attributes) and still returns `UNSUPPORTED` until #3/#4 exist. On any failure: reset, never free
     memory the device may still own. Hardware acceptance: server1 SOL on stormbootx-rustnic media (stormbootx#45).
+  - Code done at b532094; sc-build 2026-09-29: locked release build, PE subsystem 11, 47616 bytes; clippy clean apart
+    from the old `inspect_err` note in main.rs. Remaining: hardware run on server1 (the master swaps in rustnic media with
+    this driver pinned, boots the blade). Pass = SOL shows `INIT_HCA (0x0): ok` … `firmware stopped, memory returned` and
+    `Start: firmware check passed`. That run also answers spec section 7 items 1–4 (toggle, ownership/semaphore, revision,
+    small profile) and 12 (port type); record them on #2 and in the spec's checklist before starting #3.
 - [ ] Ethernet data path: EQ, CQ, one send and one receive QP (raw Ethernet), MAC from QUERY_PORT, port bring-up and link state
 - [ ] `EFI_SIMPLE_NETWORK_PROTOCOL` on a child handle with a MAC device path
 - [ ] Test on server1's ConnectX-3 port (f4:52:14:84:b7:e0, link up on g16): stormbootx prints `tcp4 : available` with only this driver on the media
