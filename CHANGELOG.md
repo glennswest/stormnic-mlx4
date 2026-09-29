@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### 2026-09-29
+- **docs:** #2 blocked on an owner decision: the ConnectX-3 PRM is not public (support-contract only), so the documentation source for the firmware command interface must be chosen (get the PRM, use the BSD-licensed mlx4 sources with notice, or park). No code change
+
 ### 2026-09-28
 - **chore:** Verified #1 at a4c8194 with sc-build (release UEFI build, PE subsystem 11, exit 0); moved hardware acceptance behind stormbootx#34. No runtime change or version bump
 - **docs:** Track missing mlx4 media integration in stormbootx#34 after #29 shipped only ixgbe; update shipping references

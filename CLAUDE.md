@@ -97,6 +97,11 @@ the blade; the master holds the BMC and console access.
     Remaining (needs the master): stormbootx ISO with this .efi and no ipxe-hermon.efi, boot server1, SOL shows
     `driver binding installed` then `0000:05:00.0 15b3:1003 ConnectX-3:` with `Supported: yes` and `Start: bound`. Close #1 on that.
 - [ ] Firmware command interface from the PRM: HCR commands, QUERY_FW, MAP_FA/RUN_FW, QUERY_DEV_CAP, INIT_HCA, ICM mapping
+  - **Blocked on the owner (#2), 2026-09-29:** the ConnectX-3 PRM is not public (only the ConnectX-4+ PRM is, and its
+    command-queue interface is a different design from ConnectX-3's HCR/mailbox). NVIDIA gives it only under a support contract.
+    Asked on #2 (labelled `needs-owner`): (1) get the PRM via NVIDIA support, (2) derive from the BSD option of the dual-licensed
+    Linux/FreeBSD mlx4 sources with a BSD notice (recommended; iPXE hermon stays off-limits), or (3) park #2–#4.
+    No code written. Do not start #2 until the owner answers; option 2 would also change the "Rules for this crate" above and the README.
 - [ ] Ethernet data path: EQ, CQ, one send and one receive QP (raw Ethernet), MAC from QUERY_PORT, port bring-up and link state
 - [ ] `EFI_SIMPLE_NETWORK_PROTOCOL` on a child handle with a MAC device path
 - [ ] Test on server1's ConnectX-3 port (f4:52:14:84:b7:e0, link up on g16): stormbootx prints `tcp4 : available` with only this driver on the media
