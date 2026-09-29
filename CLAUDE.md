@@ -11,9 +11,11 @@ scratch files go in `tmp/`.
 
 ## Rules for this crate
 
-- **Written from the vendor documentation** (Mellanox ConnectX-3 Programmer's Reference Manual (PRM); the firmware command interface (HCR, mailboxes, EQ/CQ/QP) is the bulk of the work), **not translated
-  from iPXE or Linux.** The crate is MIT; a port of GPL code would not be.
-  Reading them for behaviour is fine.
+- **Written from `docs/spec/connectx3.md` only** (owner, #2, 2026-09-29). That spec was
+  written by an independent agent from the BSD option of the dual-licensed Linux/FreeBSD
+  mlx4 sources (#10); `NOTICE` carries their BSD notice and must stay. The driver author
+  does not read those sources or iPXE's hermon (GPL); anything the spec does not settle is
+  a question for the spec (#10), not a look at another driver. Cite spec sections in code.
 - It is a *driver*: the binary is an EFI boot-service driver
   (`/subsystem:efi_boot_service_driver`), not an application, and it
   installs `EFI_DRIVER_BINDING_PROTOCOL` so the firmware's `ConnectController`
@@ -107,11 +109,14 @@ the blade; the master holds the BMC and console access.
     Remaining (needs the master): stormbootx ISO with this .efi and no ipxe-hermon.efi, boot server1, SOL shows
     `driver binding installed` then `0000:05:00.0 15b3:1003 ConnectX-3:` with `Supported: yes` and `Start: bound`. Close #1 on that.
 - [ ] Firmware command interface from the PRM: HCR commands, QUERY_FW, MAP_FA/RUN_FW, QUERY_DEV_CAP, INIT_HCA, ICM mapping
-  - **Blocked on the owner (#2), 2026-09-29:** the ConnectX-3 PRM is not public (only the ConnectX-4+ PRM is, and its
-    command-queue interface is a different design from ConnectX-3's HCR/mailbox). NVIDIA gives it only under a support contract.
-    Asked on #2 (labelled `needs-owner`): (1) get the PRM via NVIDIA support, (2) derive from the BSD option of the dual-licensed
-    Linux/FreeBSD mlx4 sources with a BSD notice (recommended; iPXE hermon stays off-limits), or (3) park #2–#4.
-    No code written. Do not start #2 until the owner answers; option 2 would also change the "Rules for this crate" above and the README.
+  - Owner decided 2026-09-29: implement from `docs/spec/connectx3.md` (merged, #10), BSD notice in `NOTICE`.
+  - Plan (#2, in progress): `src/pci.rs` gains BAR MMIO, config writes, AllocateBuffer/Map/Unmap/FreeBuffer, Attributes,
+    GetBarAttributes; `src/dma.rs` DMA common buffers + page-list splitting (spec 3.2); `src/hcr.rs` HCR protocol (2.x);
+    `src/fw.rs` ownership (1.5), reset (1.6), QUERY_FW, MAP_FA/RUN_FW, MOD_STAT_CFG, QUERY_DEV_CAP, QUERY_PORT,
+    QUERY_ADAPTER, profile (3.7), SET_ICM_SIZE/MAP_ICM_AUX/MAP_ICM, INIT_HCA, QUERY_FUNC, and the teardown (3.13).
+    `Start` runs bring-up to INIT_HCA, logs it all (section 7 items), tears it down (CLOSE_HCA, UNMAP_*, release
+    ownership, restore PCI attributes) and still returns `UNSUPPORTED` until #3/#4 exist. On any failure: reset, never free
+    memory the device may still own. Hardware acceptance: server1 SOL on stormbootx-rustnic media (stormbootx#45).
 - [ ] Ethernet data path: EQ, CQ, one send and one receive QP (raw Ethernet), MAC from QUERY_PORT, port bring-up and link state
 - [ ] `EFI_SIMPLE_NETWORK_PROTOCOL` on a child handle with a MAC device path
 - [ ] Test on server1's ConnectX-3 port (f4:52:14:84:b7:e0, link up on g16): stormbootx prints `tcp4 : available` with only this driver on the media

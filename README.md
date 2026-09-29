@@ -27,11 +27,15 @@ This crate replaces it (stormbootx#27, #5).
 ## Hardware
 
 - PCI IDs: 15b3:1003 (ConnectX-3), 15b3:1007 (ConnectX-3 Pro); the X9 blades carry 15b3:1003
-- References: Mellanox ConnectX-3 Programmer's Reference Manual (PRM); the firmware command interface (HCR, mailboxes, EQ/CQ/QP) is the bulk of the work
+- Reference: [`docs/spec/connectx3.md`](docs/spec/connectx3.md), the ConnectX-3
+  programming specification this driver is written from
 
-**Written from the vendor documentation, not translated from iPXE or Linux.**
-Reading other drivers for behaviour is fine; copying their code or structure
-would make this a GPL derivative, and it is MIT.
+**Written from `docs/spec/connectx3.md` only.** The public ConnectX-3 PRM does
+not exist (NVIDIA supplies it under a support contract), so an independent
+agent wrote that spec from the OpenIB.org BSD option of the dual-licensed
+Linux/FreeBSD mlx4 sources (#10); [`NOTICE`](NOTICE) carries their notice. The
+driver is implemented from the spec, not from those sources, and nothing comes
+from iPXE's hermon (GPL). The crate is MIT.
 
 ## Build
 
