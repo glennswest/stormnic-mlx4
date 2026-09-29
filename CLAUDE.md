@@ -149,5 +149,18 @@ the blade; the master holds the BMC and console access.
     memory returned`. The same log answers spec section 7 items 5–11, 13 and 14; record them on #3 and in the spec.
     Close #3 on that; #3 waits on stormbootx#34 like #2.
 - [ ] `EFI_SIMPLE_NETWORK_PROTOCOL` on a child handle with a MAC device path
+  - Plan (#4, 2026-09-29, spec 6.1 step 28, 6.2–6.4, UEFI spec SNP): `Start` keeps the device: `fw::open` (bring-up,
+    returns the `Hca`), `eth::open` (every Ethernet port up to steering, no round-trip check any more), a wait of at
+    most 5 s for link, then one child handle per Ethernet port with a MAC device path (parent path + MAC node,
+    IfType 1) and an SNP, the parent PCI I/O opened BY_CHILD_CONTROLLER. The driver binding is our own
+    (uefi-rs's refuses `Stop` with children). SNP: Start/Stop/Initialize/Shutdown state machine, Transmit copies
+    into the bounce buffer and GetStatus returns the caller's buffer once its CQE is reaped, Receive leaves a frame
+    queued on BUFFER_TOO_SMALL, receive filters unicast/broadcast/multicast (B0: multicast MACs attached to the RX
+    QP, never detached; software filter on top; own-source frames dropped, 5.10), MCastIpToMac, WaitForPacket,
+    MediaPresent from port-change events (QUERY_PORT fallback when MAP_EQ failed). Every SNP call runs at
+    TPL_CALLBACK. `Stop` uninstalls the children, then tears down (6.4) and frees; ExitBootServices runs 6.4's
+    command teardown silently, without freeing, releases ownership and clears bus master (bus master only, if a
+    command fails). Hardware acceptance: stormbootx prints `tcp4 : available` on server1 with rustnic media pinned
+    to this commit or later.
 - [ ] Test on server1's ConnectX-3 port (f4:52:14:84:b7:e0, link up on g16): stormbootx prints `tcp4 : available` with only this driver on the media
 - [ ] Retire `ipxe-hermon.efi` from the stormbootx media (stormbootx#27)
