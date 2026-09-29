@@ -95,8 +95,9 @@ the blade; the master holds the BMC and console access.
 - [x] Generate `Cargo.lock` on dev (no cargo on this VM): `sc-build 'cargo generate-lockfile && cat Cargo.lock'`,
   resolving `uefi` 0.39.x / `uefi-raw` 0.15.x from the existing constraints. Commit it (not in `.gitignore`).
   Done at 89798b1: uefi 0.39.0, uefi-raw 0.15.1, 17 packages (0.41 is available but outside `0.39`).
-- [ ] Push, then verify with `sc-build` using `--locked` (release UEFI build + PE subsystem 11 check).
-- [ ] Document `--locked` in README/CLAUDE.md build commands; tell stormbootx#34 it can build locked; close #9.
+- [x] Push, then verify with `sc-build` using `--locked` (release UEFI build + PE subsystem 11 check).
+  Passed at b89d437: locked release build, subsystem 11, 23040 bytes, `Cargo.lock` unchanged, exit 0.
+- [x] Document `--locked` in README/CLAUDE.md build commands; tell stormbootx#34 it can build locked; close #9.
 
 - [ ] Driver scaffold: `EFI_DRIVER_BINDING_PROTOCOL` matching 15b3:1003/1007, built as an EFI boot-service driver
   - In progress (#1): `build.rs` links `/subsystem:efi_boot_service_driver`; entry installs the binding via `uefi::driver::install`;
