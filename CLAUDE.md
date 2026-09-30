@@ -128,7 +128,7 @@ the blade; the master holds the BMC and console access.
     QUERY_ADAPTER, profile (3.7), SET_ICM_SIZE/MAP_ICM_AUX/MAP_ICM, INIT_HCA, QUERY_FUNC, and the teardown (3.13).
     `Start` runs bring-up to INIT_HCA, logs it all (section 7 items), tears it down (CLOSE_HCA, UNMAP_*, release
     ownership, restore PCI attributes) and still returns `UNSUPPORTED` until #3/#4 exist. On any failure: reset, never free
-    memory the device may still own. Hardware acceptance: server1 SOL on stormbootx-rustnic media (stormbootx#45).
+    memory the device may still own. Hardware acceptance: server1 SOL on stormbootx-rustnic media (stormbootx#34/#50).
   - Code done at b532094; sc-build 2026-09-29: locked release build, PE subsystem 11, 47616 bytes; clippy clean apart
     from the old `inspect_err` note in main.rs. Remaining: hardware run on server1 (the master swaps in rustnic media with
     this driver pinned, boots the blade). Pass = SOL shows `INIT_HCA (0x0): ok` … `firmware stopped, memory returned` and
@@ -136,6 +136,11 @@ the blade; the master holds the BMC and console access.
     small profile) and 12 (port type); record them on #2 and in the spec's checklist before starting #3.
   - 2026-09-29: status posted on #2, stormbootx#34 asked to pin 69efddd+; #2 moved behind stormbootx#34 (stormcentral confirmed).
     #2 stays open until the server1 SOL shows the pass lines.
+  - 2026-09-29 recheck: v0.2.0 (#4) keeps the device, so `Start: firmware check passed` is gone and `firmware stopped,
+    memory returned` prints only on `Stop`. Pass restated for v0.2.0 media (`golden-stormbootx-rustnic-ab4e848a4dcfcaf3`):
+    SOL shows `INIT_HCA (0x0): ok`, `firmware bring-up complete`, then `port N SNP: initialized`. A boot of the cef8dc5
+    golden (`golden-stormbootx-rustnic-7f260c307c5ee784`) still passes on the old lines. server1 SOL (21:34) has no
+    stormnic-mlx4 lines yet; question posted on #2, needs-owner (same boot as #1, #3, #4).
 - [ ] Ethernet data path: EQ, CQ, one send and one receive QP (raw Ethernet), MAC from QUERY_PORT, port bring-up and link state
   - Plan (#3, 2026-09-29, from spec sections 4–6): `src/dma.rs` gains a copyable `Mem` view (DmaBuf derefs to it);
     `src/eth.rs` creates, in Linux's order, EQ (256 × 32 B) + MAP_EQ, CONF_SPECIAL_QP, the physical MPT (L_Key), then per
