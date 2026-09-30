@@ -5,6 +5,7 @@
 <!-- New unreleased changes go here -->
 
 ### 2026-09-29
+- **docs:** #3 pass restated for v0.2.0 (`port N SNP: initialized, media present`, `tcp4 : available`, traffic past it) (work plan).
 - **docs:** #2 pass restated for v0.2.0 (`INIT_HCA (0x0): ok`, `firmware bring-up complete`, `port N SNP: initialized`); stale stormbootx#45 reference fixed (work plan).
 - **docs:** #1 recheck: server1 has still not booted the rustnic media; pass accepts 0.1.0 or 0.2.0, current golden named (work plan).
 - **docs:** #4 waits on stormbootx#50 (pin v0.2.0 on the rustnic media) for the server1 `tcp4 : available` check

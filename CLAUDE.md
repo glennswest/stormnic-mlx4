@@ -156,6 +156,12 @@ the blade; the master holds the BMC and console access.
     commit or later). Pass = SOL shows `port N: broadcast round trip ok: ...` for the cabled port, then `firmware stopped,
     memory returned`. The same log answers spec section 7 items 5–11, 13 and 14; record them on #3 and in the spec.
     Close #3 on that; #3 waits on stormbootx#34 like #2.
+  - 2026-09-29 recheck: v0.2.0 dropped the round-trip self-test, so `broadcast round trip ok` is gone and `firmware stopped,
+    memory returned` prints only on `Stop`. Pass restated for v0.2.0 media (`golden-stormbootx-rustnic-ab4e848a4dcfcaf3`):
+    SOL shows `port N SNP: initialized, media present` and stormbootx `tcp4 : available`, with traffic past it (a DHCP
+    lease or the portal connection; g16 runs DHCP, microdns#13). The cef8dc5 golden
+    (`golden-stormbootx-rustnic-7f260c307c5ee784`) still passes on the old lines. Spec section 7 items 5–11, 13, 14 are
+    read from whichever log it is. server1 SOL (21:35) has no stormnic-mlx4 lines; question on #3, needs-owner.
 - [ ] `EFI_SIMPLE_NETWORK_PROTOCOL` on a child handle with a MAC device path
   - Plan (#4, 2026-09-29, spec 6.1 step 28, 6.2–6.4, UEFI spec SNP): `Start` keeps the device: `fw::open` (bring-up,
     returns the `Hca`), `eth::open` (every Ethernet port up to steering, no round-trip check any more), a wait of at
