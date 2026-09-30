@@ -100,6 +100,9 @@ the blade; the master holds the BMC and console access.
 - [x] Asked the owner/master on #1 to boot server1 from the rustnic golden (one boot also checks #2 and #3);
   #1 waits in Needs you. Close #1 when the SOL shows `driver binding installed`, `0000:05:00.0 15b3:1003`,
   `Supported: yes` and `Start: bound; bringing up the firmware` (the old "no firmware bring-up yet" wording is gone).
+- [x] Rechecked 2026-09-29: server1 SOL (last written 21:34) still has only ixgbe runs, no stormnic-mlx4 lines.
+  Current media is `golden-stormbootx-rustnic-ab4e848a4dcfcaf3` (mlx4 v0.2.0, stormbootx#50); one boot on it checks
+  #1–#4. Pass for #1 accepts `stormnic-mlx4 0.1.0` or `0.2.0: driver binding installed`. Question re-posted on #1, needs-owner.
 
 ### Issue #9 commit Cargo.lock (2026-09-29)
 
