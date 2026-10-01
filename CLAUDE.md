@@ -180,5 +180,15 @@ the blade; the master holds the BMC and console access.
     clean (one `vec_box` allowed: the boxes keep the SNP addresses fixed). Released as v0.2.0. Remaining: stormbootx
     pins `STORMNIC_MLX4_REF` to v0.2.0 on the rustnic media (stormbootx#50), the master boots
     server1; pass = `tcp4 : available` and `port 1 SNP: initialized`. Close #4 on that.
+- [ ] #15 AMI Aptio 4 (X9, server3): PCI I/O refuses `BarIndex` 2, so every UAR doorbell fails
+  - Plan (2026-10-01): AMI's PciIo counts BARs (a 64-bit BAR takes one index; UAR = 1), EDK2 counts registers (UAR = 2;
+    spec 1.2). New UEFI-independent `src/bars.rs` picks the index: candidates are the register index and the BAR count
+    before it; each is asked for `GetBarAttributes`, and the one whose descriptor base equals the address in config space
+    wins (else the only one that answered; else the register index). Resolved once after the reset in `fw::start`, kept in
+    `Hca`, used by the EQ and TX doorbells, the UAR size check and the catastrophic-buffer BAR from QUERY_FW (× 2 is a
+    register index). `test/bars.rs` runs it against both schemes (`scripts/test-host.sh`, rustc --test, on dev).
+  - Port type: QUERY_PORT said Ethernet-capable and "suggests IB"; spec 5.1 has no command that sets the port type (the
+    port is Ethernet when driven with SET_PORT op_mod 1 and Ethernet QPs, which we do). Print the type used and why.
+    Link changes already print (`port N: link up/down`) whenever the SNP is polled.
 - [ ] Test on server1's ConnectX-3 port (f4:52:14:84:b7:e0, link up on g16): stormbootx prints `tcp4 : available` with only this driver on the media
 - [ ] Retire `ipxe-hermon.efi` from the stormbootx media (stormbootx#27)
