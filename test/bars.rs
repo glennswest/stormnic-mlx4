@@ -106,3 +106,10 @@ fn bases_of_32bit_and_io_bars() {
     assert_eq!(bars::base(&r, 1), 0xe000);
     assert_eq!(bars::candidates(&r, 1), [1, 1]);
 }
+
+#[test]
+fn every_choice_is_described() {
+    for h in [How::BaseMatches, How::Scan, How::OnlyAnswer, How::NoMatch, How::NoAnswer] {
+        assert!(!h.describe().is_empty());
+    }
+}
