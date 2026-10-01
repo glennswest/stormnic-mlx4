@@ -195,5 +195,11 @@ the blade; the master holds the BMC and console access.
     79872 bytes, clippy clean, `scripts/test-host.sh` 9/9 (EDK2 → 2, AMI → 1). stormbootx#64 asks for the rustnic pin
     to v0.2.1; #15 moved behind it. Close #15 when server3's console shows `BarIndex 1`, no `doorbell write failed`,
     and `port 1 SNP: initialized`.
+  - 2026-10-01: verified on server3 (golden-stormbootx-rustnic-bde9ae3a566c4d7d, v0.2.1): `BarIndex 1`, every command ok,
+    SNP installed, TX of a DHCP discover. Left: `port 1: no link after 5 s`. Owner asked for the port's speed and module
+    info at link down. Spec 3.5 gives autoneg (0x01 bit 7), speed code (0x05), transceiver type/OUI (0x18), wavelength
+    (0x1c), transceiver code (0x20); no supported/advertised speed masks (that would be ACCESS_REG/PTYS, not in the spec).
+    Plan: decode those in `PortInfo`, print them at link up/down and at the 5 s timeout; release v0.2.2; close #15 with
+    the link left to dellsw#14 (switch side).
 - [ ] Test on server1's ConnectX-3 port (f4:52:14:84:b7:e0, link up on g16): stormbootx prints `tcp4 : available` with only this driver on the media
 - [ ] Retire `ipxe-hermon.efi` from the stormbootx media (stormbootx#27)
