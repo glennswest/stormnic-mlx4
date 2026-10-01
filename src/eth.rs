@@ -239,6 +239,8 @@ pub struct Port {
     tx_broken: bool,
     /// Multicast MACs attached to the RX QP (B0; never detached).
     joined: Vec<[u8; 6]>,
+    /// The link changed; its speed and module are not printed yet (`report_news`).
+    news: bool,
 }
 
 /// Every Ethernet port, up, and what they share.
@@ -286,6 +288,27 @@ impl Eth {
         Ok(())
     }
 
+    /// Print the speed and module of every port whose link changed since
+    /// (the event handler has no HCA to ask QUERY_PORT with).
+    pub fn report_news(&mut self, hca: &mut Hca, pci: &mut PciIo) {
+        for i in 0..self.ports.len() {
+            if core::mem::take(&mut self.ports[i].news) {
+                self.report_link(hca, pci, i);
+            }
+        }
+    }
+
+    /// Print port `i`'s speed and module, as QUERY_PORT reports them now.
+    fn report_link(&mut self, hca: &mut Hca, pci: &mut PciIo, i: usize) {
+        hca.hcr.quiet = true;
+        let r = hca.query_port(pci, self.ports[i].num);
+        hca.hcr.quiet = false;
+        match r {
+            Ok(info) => info.print_link(),
+            Err(_) => uefi::println!("  port {}: QUERY_PORT failed; no link details", self.ports[i].num),
+        }
+    }
+
     /// Wait up to `max_ms` for every port to have link, so the first
     /// consumer of the SNP does not start on a port still training.
     pub fn wait_link(&mut self, hca: &mut Hca, pci: &mut PciIo, max_ms: u32) {
@@ -299,11 +322,20 @@ impl Eth {
             }
             if self.ports.iter().all(|p| p.link_up) {
                 uefi::println!("  link up on every Ethernet port after {waited} ms");
+                for i in 0..self.ports.len() {
+                    self.ports[i].news = false;
+                    self.report_link(hca, pci, i);
+                }
                 return;
             }
             if waited >= max_ms {
-                for p in self.ports.iter().filter(|p| !p.link_up) {
-                    uefi::println!("  port {}: no link after {} s; reported as no media", p.num, max_ms / 1000);
+                for i in 0..self.ports.len() {
+                    self.ports[i].news = false;
+                    if !self.ports[i].link_up {
+                        let num = self.ports[i].num;
+                        uefi::println!("  port {num}: no link after {} s; reported as no media", max_ms / 1000);
+                    }
+                    self.report_link(hca, pci, i);
                 }
                 return;
             }
@@ -574,6 +606,7 @@ fn port_up(hca: &mut Hca, pci: &mut PciIo, sh: &mut Shared, s: &Setup, p: &PortI
         done: VecDeque::new(),
         tx_broken: false,
         joined: Vec::new(),
+        news: false,
     })
 }
 
@@ -788,6 +821,7 @@ impl Port {
         if up != self.link_up {
             uefi::println!("stormnic-mlx4: port {}: link {}", self.num, if up { "up" } else { "down" });
             self.link_up = up;
+            self.news = true;
         }
     }
 

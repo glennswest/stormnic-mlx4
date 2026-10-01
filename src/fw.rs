@@ -306,6 +306,61 @@ pub struct PortInfo {
     pub mtu_cap: u16,
     pub log_macs: u8,
     pub mac: [u8; 6],
+    /// Byte 1 bit 7: autonegotiation.
+    pub autoneg: bool,
+    /// Byte 5 & 0x6f: link speed code (5.8).
+    pub speed: u8,
+    /// 0x18: transceiver type (31:24) and vendor OUI (23:0).
+    pub xcvr: u32,
+    /// 0x1c: wavelength.
+    pub wavelength: u16,
+    /// 0x20: transceiver code.
+    pub xcvr_code: u64,
+}
+
+impl PortInfo {
+    /// The speed code's name (3.5). It is meaningful only with link up.
+    pub fn speed_name(&self) -> &'static str {
+        match self.speed {
+            0x00 => "10G XAUI",
+            0x01 => "10G XFI",
+            0x02 => "1G",
+            0x04 => "100M",
+            0x08 => "20G",
+            0x20 => "56G",
+            0x40 => "40G",
+            _ => "other",
+        }
+    }
+
+    /// Print what QUERY_PORT says about the link and the module (3.5, 5.8),
+    /// so a port without link can be matched to the switch side.
+    pub fn print_link(&self) {
+        uefi::println!(
+            "  port {}: link {}, speed code {:#04x} ({}{}), autoneg {}",
+            self.num,
+            if self.link_up { "up" } else { "down" },
+            self.speed,
+            self.speed_name(),
+            if self.link_up { "" } else { "; no link, so not a negotiated speed" },
+            if self.autoneg { "on" } else { "off" }
+        );
+        if self.xcvr == 0 && self.wavelength == 0 && self.xcvr_code == 0 {
+            uefi::println!("  port {}: module: no transceiver information (none plugged, or not readable)", self.num);
+        } else {
+            let oui = self.xcvr & 0xff_ffff;
+            uefi::println!(
+                "  port {}: module: transceiver type {:#04x}, vendor OUI {:02x}:{:02x}:{:02x}, wavelength {}, code {:#018x}",
+                self.num,
+                self.xcvr >> 24,
+                oui >> 16,
+                (oui >> 8) & 0xff,
+                oui & 0xff,
+                self.wavelength,
+                self.xcvr_code
+            );
+        }
+    }
 }
 
 /// Everything bring-up learnt that the data path needs.
@@ -660,17 +715,16 @@ impl Hca {
         };
         let mac: [u8; 6] = core::array::from_fn(|i| o.u8(0x12 + i));
         uefi::println!(
-            "  port {port}: link {}, supports {types}, suggests {}, MTU cap {}, speed code {:#04x}, log max MACs {}",
-            if b0 & 0x80 != 0 { "up" } else { "down" },
+            "  port {port}: supports {types}, suggests {}, MTU cap {}, log max MACs {}",
             if b0 & 0x08 != 0 { "Ethernet" } else { "IB" },
             o.be16(0x02),
-            o.u8(0x05) & 0x6f,
             o.u8(0x0a) & 0xf
         );
         uefi::println!(
             "  port {port}: MAC {:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
             mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]
         );
+        info.print_link();
         Ok(info)
     }
 
@@ -684,6 +738,11 @@ impl Hca {
             mtu_cap: o.be16(0x02),
             log_macs: o.u8(0x0a) & 0xf,
             mac: core::array::from_fn(|i| o.u8(0x12 + i)),
+            autoneg: o.u8(0x01) & 0x80 != 0,
+            speed: o.u8(0x05) & 0x6f,
+            xcvr: o.be32(0x18),
+            wavelength: o.be16(0x1c),
+            xcvr_code: o.be64(0x20),
         }
     }
 

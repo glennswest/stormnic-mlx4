@@ -244,6 +244,7 @@ impl Child {
         let n = unsafe { &mut *self.nic };
         let pci = unsafe { &mut *n.pci };
         n.eth.poll(pci);
+        n.eth.report_news(&mut n.hca, pci);
         self.status_calls = self.status_calls.wrapping_add(1);
         if !n.eth.events() && self.status_calls % LINK_POLL_CALLS == 1 {
             let _ = n.eth.refresh_link(&mut n.hca, pci, self.port);

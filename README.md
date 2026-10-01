@@ -184,6 +184,8 @@ stormnic-mlx4: 0000:05:00.0 15b3:1003 ConnectX-3:
   port 1: up, link down
 stormnic-mlx4: port 1: link up
   link up on every Ethernet port after 2300 ms
+  port 1: link up, speed code 0x01 (10G XFI), autoneg on
+  port 1: module: transceiver type 0x.., vendor OUI ..:..:.., wavelength ..., code 0x...
   port 1: SNP installed on a child handle, MAC f4:52:14:84:b7:e0, media present
   Start: 1 SNP child handle(s) installed
 stormnic-mlx4: port 1 SNP: started
@@ -199,7 +201,10 @@ timeout also prints the catastrophic error buffer, and `Start` ends with
 `Start: firmware bring-up failed, releasing the NIC` or `Start: data path
 bring-up failed, releasing the NIC`. Per port: `port N: not Ethernet (...);
 skipped`, `port N: no link after 5 s; reported as no media`, link changes
-(`stormnic-mlx4: port N: link up/down`), error completions (`rx:`/`tx: error
+(`stormnic-mlx4: port N: link up/down`), each followed by what QUERY_PORT
+reports about the link and module (speed code, autonegotiation, transceiver
+type, vendor OUI, wavelength and code, spec 3.5; the speed means nothing
+without link, and the spec has no supported/advertised speed masks), error completions (`rx:`/`tx: error
 completion, syndrome ...`) and EQ events (CQ and QP errors). Other outcomes:
 `Supported: already has an SNP, leaving it to the platform's driver`,
 `Supported: no, PCI I/O is held (<status>)`, `Start: cannot claim PCI I/O

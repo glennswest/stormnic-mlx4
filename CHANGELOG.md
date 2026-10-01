@@ -5,6 +5,7 @@
 <!-- New unreleased changes go here -->
 
 ### 2026-10-01
+- **feat:** Link diagnostics (#15): at the 5 s link wait and after every link change the driver prints QUERY_PORT's speed code (named), autonegotiation, and the module's transceiver type, vendor OUI, wavelength and code (spec 3.5), so a port without link can be matched to the switch side.
 - **docs:** #15 released as v0.2.1, waiting on the rustnic pin (stormbootx#64) and a server3 boot (work plan).
 
 ### 2026-09-29
