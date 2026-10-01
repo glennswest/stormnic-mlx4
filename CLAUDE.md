@@ -180,7 +180,7 @@ the blade; the master holds the BMC and console access.
     clean (one `vec_box` allowed: the boxes keep the SNP addresses fixed). Released as v0.2.0. Remaining: stormbootx
     pins `STORMNIC_MLX4_REF` to v0.2.0 on the rustnic media (stormbootx#50), the master boots
     server1; pass = `tcp4 : available` and `port 1 SNP: initialized`. Close #4 on that.
-- [ ] #15 AMI Aptio 4 (X9, server3): PCI I/O refuses `BarIndex` 2, so every UAR doorbell fails
+- [x] #15 AMI Aptio 4 (X9, server3): PCI I/O refuses `BarIndex` 2, so every UAR doorbell fails
   - Plan (2026-10-01): AMI's PciIo counts BARs (a 64-bit BAR takes one index; UAR = 1), EDK2 counts registers (UAR = 2;
     spec 1.2). New UEFI-independent `src/bars.rs` picks the index: candidates are the register index and the BAR count
     before it; each is asked for `GetBarAttributes`, and the one whose descriptor base equals the address in config space
@@ -201,5 +201,8 @@ the blade; the master holds the BMC and console access.
     (0x1c), transceiver code (0x20); no supported/advertised speed masks (that would be ACCESS_REG/PTYS, not in the spec).
     Plan: decode those in `PortInfo`, print them at link up/down and at the 5 s timeout; release v0.2.2; close #15 with
     the link left to dellsw#14 (switch side).
+  - Done: b993312 + v0.2.2 (c56601f); sc-build locked release, subsystem 11, 81920 bytes, clippy clean, host tests 9/9.
+    stormbootx#66 asks for the rustnic pin to v0.2.2. #15 closed: driver side verified on server3; the missing link is
+    dellsw#14's (switch side), and v0.2.2's console lines are the data for it.
 - [ ] Test on server1's ConnectX-3 port (f4:52:14:84:b7:e0, link up on g16): stormbootx prints `tcp4 : available` with only this driver on the media
 - [ ] Retire `ipxe-hermon.efi` from the stormbootx media (stormbootx#27)

@@ -5,6 +5,7 @@
 <!-- New unreleased changes go here -->
 
 ### 2026-10-01
+- **docs:** #15 verified on server3 and closed; v0.2.2 pin requested in stormbootx#66 (work plan).
 - **docs:** #15 released as v0.2.1, waiting on the rustnic pin (stormbootx#64) and a server3 boot (work plan).
 
 ### 2026-09-29
