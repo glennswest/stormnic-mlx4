@@ -60,7 +60,7 @@ the blade; the master holds the BMC and console access.
 
 ## Version
 
-`Cargo.toml` → `package.version`. Current: `v0.2.1`.
+`Cargo.toml` → `package.version`. Current: `v0.2.2`.
 
 ## Work plan
 

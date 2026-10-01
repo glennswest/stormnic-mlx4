@@ -5,7 +5,6 @@
 <!-- New unreleased changes go here -->
 
 ### 2026-10-01
-- **feat:** Link diagnostics (#15): at the 5 s link wait and after every link change the driver prints QUERY_PORT's speed code (named), autonegotiation, and the module's transceiver type, vendor OUI, wavelength and code (spec 3.5), so a port without link can be matched to the switch side.
 - **docs:** #15 released as v0.2.1, waiting on the rustnic pin (stormbootx#64) and a server3 boot (work plan).
 
 ### 2026-09-29
@@ -13,6 +12,11 @@
 - **docs:** #2 pass restated for v0.2.0 (`INIT_HCA (0x0): ok`, `firmware bring-up complete`, `port N SNP: initialized`); stale stormbootx#45 reference fixed (work plan).
 - **docs:** #1 recheck: server1 has still not booted the rustnic media; pass accepts 0.1.0 or 0.2.0, current golden named (work plan).
 - **docs:** #4 waits on stormbootx#50 (pin v0.2.0 on the rustnic media) for the server1 `tcp4 : available` check
+
+## [v0.2.2] — 2026-10-01
+
+### Added
+- Link diagnostics (#15): at the 5 s link wait and after every link change the driver prints QUERY_PORT's speed code (named), autonegotiation, and the module's transceiver type, vendor OUI, wavelength and code (spec 3.5), so a port without link can be matched to the switch side.
 
 ## [v0.2.1] — 2026-10-01
 
