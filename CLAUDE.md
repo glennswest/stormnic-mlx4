@@ -190,5 +190,10 @@ the blade; the master holds the BMC and console access.
   - Port type: QUERY_PORT said Ethernet-capable and "suggests IB"; spec 5.1 has no command that sets the port type (the
     port is Ethernet when driven with SET_PORT op_mod 1 and Ethernet QPs, which we do). Print the type used and why.
     Link changes already print (`port N: link up/down`) whenever the SNP is polled.
+  - Owner made it P0 (2026-10-01): also scan indexes 0–5 for the base, and force VPI ports to Ethernet (done; the X9
+    port is Ethernet-only anyway). Code done and released as v0.2.1 (cf37f8b): sc-build locked release, subsystem 11,
+    79872 bytes, clippy clean, `scripts/test-host.sh` 9/9 (EDK2 → 2, AMI → 1). stormbootx#64 asks for the rustnic pin
+    to v0.2.1; #15 moved behind it. Close #15 when server3's console shows `BarIndex 1`, no `doorbell write failed`,
+    and `port 1 SNP: initialized`.
 - [ ] Test on server1's ConnectX-3 port (f4:52:14:84:b7:e0, link up on g16): stormbootx prints `tcp4 : available` with only this driver on the media
 - [ ] Retire `ipxe-hermon.efi` from the stormbootx media (stormbootx#27)

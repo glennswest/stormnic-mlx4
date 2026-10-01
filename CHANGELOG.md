@@ -4,6 +4,9 @@
 
 <!-- New unreleased changes go here -->
 
+### 2026-10-01
+- **docs:** #15 released as v0.2.1, waiting on the rustnic pin (stormbootx#64) and a server3 boot (work plan).
+
 ### 2026-09-29
 - **docs:** #3 pass restated for v0.2.0 (`port N SNP: initialized, media present`, `tcp4 : available`, traffic past it) (work plan).
 - **docs:** #2 pass restated for v0.2.0 (`INIT_HCA (0x0): ok`, `firmware bring-up complete`, `port N SNP: initialized`); stale stormbootx#45 reference fixed (work plan).
