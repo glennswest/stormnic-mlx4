@@ -24,6 +24,7 @@
 
 extern crate alloc;
 
+mod bars;
 mod dma;
 mod eth;
 mod fw;

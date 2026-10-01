@@ -78,8 +78,24 @@ and note it in the changelog.
 - **ExitBootServices:** an event stops the device's DMA before the OS takes
   the memory (spec 6.4): the teardown commands, silently and without freeing,
   then ownership released and bus master cleared.
+- **BAR numbering:** PCI I/O's `BarIndex` for the UAR BAR (config 0x18) is
+  not the same on every firmware (#15): EDK2 counts BAR registers (index 2),
+  AMI Aptio 4 on the X9 blades counts BARs (index 1). `src/bars.rs` asks
+  `GetBarAttributes` about both (then indexes 0–5) and takes the one whose
+  base is the address in config space; the console line `UAR BAR (register
+  2): BarIndex N` says which.
+- **Port type:** Ethernet-only ports, and VPI ports forced to Ethernet whatever
+  the firmware suggests (spec 5.1 has no command that sets the type; the port
+  is driven with the Ethernet SET_PORT forms and Ethernet QPs). The console
+  says `port N: type Ethernet (...)` and why.
 - **Configuration:** none. No options, variables, ports or files are read; the
   PCI IDs it takes are compiled in (`DEVICES` in `src/main.rs`).
+
+## Tests
+
+`scripts/test-host.sh` builds and runs the host tests of the UEFI-independent
+code against simulated firmware (`test/bars.rs`: EDK2 and AMI BAR numbering).
+Run it on dev through `sc-build 'scripts/test-host.sh'`.
 
 ## How it ships
 

@@ -8,6 +8,8 @@ use core::ptr::{self, NonNull};
 use uefi::proto::unsafe_protocol;
 use uefi::{Status, StatusExt};
 
+use crate::bars;
+
 /// `EFI_PCI_IO_PROTOCOL_WIDTH`.
 const WIDTH_UINT16: u32 = 1;
 const WIDTH_UINT32: u32 = 2;
@@ -194,27 +196,37 @@ impl PciIo {
         self.attributes(ATTR_SET, attributes).map(|_| ())
     }
 
-    /// The length of a memory BAR, from the ACPI QWORD address space
-    /// descriptor `GetBarAttributes` returns (ACPI spec, "QWord Address Space
-    /// Descriptor": tag 0x8a, `_LEN` at byte 38; the list ends with tag 0x79).
-    pub fn bar_size(&mut self, bar: u8) -> uefi::Result<u64> {
+    /// The base and length of a memory BAR, from the ACPI QWORD address
+    /// space descriptor `GetBarAttributes` returns (ACPI spec, "QWord Address
+    /// Space Descriptor": tag 0x8a, `_MIN` at byte 14, `_LEN` at byte 38).
+    pub fn bar_range(&mut self, bar: u8) -> uefi::Result<(u64, u64)> {
         let mut res: *mut c_void = ptr::null_mut();
         unsafe { (self.get_bar_attributes)(self, bar, ptr::null_mut(), &mut res) }.to_result()?;
         let Some(res) = NonNull::new(res.cast::<u8>()) else {
             return Err(Status::NOT_FOUND.into());
         };
         // SAFETY: the firmware returns a descriptor list it allocated from
-        // pool; it is read up to its end tag and then freed.
-        let size = unsafe {
+        // pool; its first descriptor is read and the list freed.
+        let range = unsafe {
             let p = res.as_ptr();
             if *p == 0x8a {
-                Some(ptr::read_unaligned(p.add(38).cast::<u64>()))
+                Some((ptr::read_unaligned(p.add(14).cast::<u64>()), ptr::read_unaligned(p.add(38).cast::<u64>())))
             } else {
                 None
             }
         };
         let _ = unsafe { uefi::boot::free_pool(res) };
-        size.ok_or_else(|| Status::UNSUPPORTED.into())
+        range.ok_or_else(|| Status::UNSUPPORTED.into())
+    }
+
+    /// The `BarIndex` for the BAR in config register `reg` (0–5), and how it
+    /// was chosen (`bars.rs`; AMI and EDK2 number them differently, #15).
+    pub fn find_bar(&mut self, reg: usize) -> uefi::Result<bars::Pick> {
+        let mut regs = [0u32; 6];
+        for (i, d) in regs.iter_mut().enumerate() {
+            *d = self.read_config32(0x10 + 4 * i as u32)?;
+        }
+        Ok(bars::choose(&regs, reg, |i| self.bar_range(i).ok()))
     }
 
     /// `pages` 4 KiB pages of boot-services memory the device may use,

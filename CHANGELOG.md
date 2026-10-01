@@ -4,6 +4,11 @@
 
 <!-- New unreleased changes go here -->
 
+### 2026-10-01
+- **fix:** UAR BAR found by asking PCI I/O instead of hard-coding `BarIndex` 2 (#15): AMI Aptio 4 (X9) numbers BARs, not BAR registers, so index 2 was refused and every doorbell write failed UNSUPPORTED. `src/bars.rs` takes the candidate (register index, BAR count) whose `GetBarAttributes` base is the config-space address, then scans 0–5; the EQ and TX doorbells, the UAR size check and the catastrophic-buffer BAR use it.
+- **fix:** VPI ports are always driven as Ethernet (owner, #15); the firmware's suggestion and SENSE_PORT are only logged, and every port prints the type used and why.
+- **test:** `test/bars.rs` (EDK2 and AMI BAR numbering, simulated `GetBarAttributes`), run by `scripts/test-host.sh`.
+
 ### 2026-09-29
 - **docs:** #3 pass restated for v0.2.0 (`port N SNP: initialized, media present`, `tcp4 : available`, traffic past it) (work plan).
 - **docs:** #2 pass restated for v0.2.0 (`INIT_HCA (0x0): ok`, `firmware bring-up complete`, `port N SNP: initialized`); stale stormbootx#45 reference fixed (work plan).

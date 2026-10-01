@@ -10,6 +10,7 @@ use core::time::Duration;
 
 use uefi::{boot, Status};
 
+use crate::bars;
 use crate::dma::{self, DmaBuf, Mem, PAGE};
 use crate::hcr::{self, CmdError, Hcr, Op, BAR_DCS};
 use crate::pci::{self, PciIo};
@@ -36,8 +37,9 @@ pub(crate) use fail;
 const OWNER: u64 = 0x8069c;
 const RESET: u64 = 0xf0010;
 const RESET_SEMAPHORE: u64 = 0xf03fc;
-/// The UAR BAR (1.2).
-pub const BAR_UAR: u8 = 2;
+/// The UAR BAR's config register (1.2: config 0x18, BAR register 2). Its
+/// PCI I/O `BarIndex` depends on the firmware (#15): `Hca::uar_bar`.
+const UAR_REG: usize = 2;
 /// x86 cache line, for INIT_HCA and the MTT reservation (3.10, 4.1).
 const CACHE_LINE: u64 = 64;
 /// MGM entry size, log2 (3.7, Linux default).
@@ -143,9 +145,12 @@ fn restore(pci: &mut PciIo, original: u64) {
 fn start(pci: &mut PciIo, original: u64) -> Result<(Hca, Setup), Fail> {
     // 1.6: an option ROM or an earlier driver may have left firmware running.
     reset(pci)?;
+    let uar = uar_bar(pci)?;
     let hcr = Hcr::new(pci)?;
     let mut hca = Hca {
         hcr,
+        uar_bar: uar.index,
+        uar_size: uar.size,
         fa: None,
         aux: None,
         icm: Vec::new(),
@@ -166,6 +171,17 @@ fn start(pci: &mut PciIo, original: u64) -> Result<(Hca, Setup), Fail> {
             Err(f)
         }
     }
+}
+
+/// The UAR BAR's PCI I/O `BarIndex` (1.2): EDK2 numbers BAR registers (2),
+/// AMI Aptio 4 numbers BARs (1); `bars.rs` asks PCI I/O about both.
+fn uar_bar(pci: &mut PciIo) -> Result<bars::Pick, Fail> {
+    let pick = pci.find_bar(UAR_REG).map_err(|e| Fail::log("UAR BAR: config read", e.status()))?;
+    match pick.size {
+        Some(size) => uefi::println!("  UAR BAR (register {UAR_REG}): BarIndex {}, {size:#x} bytes; {}", pick.index, pick.how.describe()),
+        None => uefi::println!("  UAR BAR (register {UAR_REG}): BarIndex {}, size unknown; {}", pick.index, pick.how.describe()),
+    }
+    Ok(pick)
 }
 
 /// The PCI Express capability's offset, for the reset's restore (1.6).
@@ -352,6 +368,10 @@ pub struct Undo {
 /// What has been handed to the firmware, so teardown can take it back.
 pub struct Hca {
     pub hcr: Hcr,
+    /// PCI I/O's `BarIndex` for the UAR BAR, and its length if PCI I/O gave
+    /// one (1.2, #15).
+    pub uar_bar: u8,
+    uar_size: Option<u64>,
     /// The firmware area, once MAP_FA has been issued (3.2).
     fa: Option<DmaBuf>,
     /// The auxiliary ICM pages, once MAP_ICM_AUX has been issued (3.8).
@@ -523,7 +543,10 @@ impl Hca {
         let rev = o.be16(0x0a);
         let catas_off = o.be64(0x30);
         let catas_size = o.be32(0x38);
-        let catas_bar = (o.u8(0x3c) >> 6) * 2;
+        // 1.2: the field × 2 is a BAR register; register 2 is the UAR BAR,
+        // whose BarIndex the firmware decides (#15).
+        let catas_reg = (o.u8(0x3c) >> 6) * 2;
+        let catas_bar = if usize::from(catas_reg) == UAR_REG { self.uar_bar } else { catas_reg };
         uefi::println!(
             "  firmware {major}.{minor}.{subminor}, command interface revision {rev}, PPF {}, log max commands {}",
             o.u8(0x09),
@@ -609,12 +632,13 @@ impl Hca {
         if uar_pages <= 128 {
             return Err(fail!("UAR area has {uar_pages} pages, 128 or fewer: firmware log2_uar_bar_megabytes too small; stopping"));
         }
-        match pci.bar_size(BAR_UAR) {
-            Ok(bar) if cap.uar_bytes > bar => {
-                return Err(fail!("UAR area {:#x} is larger than BAR 2 ({bar:#x}); stopping", cap.uar_bytes))
+        let bar = self.uar_bar;
+        match self.uar_size {
+            Some(size) if cap.uar_bytes > size => {
+                return Err(fail!("UAR area {:#x} is larger than the UAR BAR ({size:#x}); stopping", cap.uar_bytes))
             }
-            Ok(bar) => uefi::println!("  UAR area {:#x} ({uar_pages} pages), BAR 2 {bar:#x}", cap.uar_bytes),
-            Err(e) => uefi::println!("  UAR area {:#x}; BAR 2 size unknown ({:?})", cap.uar_bytes, e.status()),
+            Some(size) => uefi::println!("  UAR area {:#x} ({uar_pages} pages), UAR BAR (index {bar}) {size:#x}", cap.uar_bytes),
+            None => uefi::println!("  UAR area {:#x} ({uar_pages} pages); UAR BAR (index {bar}) size unknown", cap.uar_bytes),
         }
         Ok(cap)
     }

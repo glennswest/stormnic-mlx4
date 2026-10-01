@@ -18,7 +18,7 @@ use core::time::Duration;
 use uefi::boot;
 
 use crate::dma::{Mem, PAGE};
-use crate::fw::{self, fail, Fail, Hca, PortInfo, Setup, BAR_UAR};
+use crate::fw::{self, fail, Fail, Hca, PortInfo, Setup};
 use crate::hcr;
 use crate::pci::PciIo;
 
@@ -105,6 +105,8 @@ impl Mtt {
 /// The event queue (4.6), polled.
 struct Eq {
     eqn: u32,
+    /// PCI I/O's `BarIndex` for the UAR BAR (`Hca::uar_bar`).
+    bar: u8,
     mem: Mem,
     ci: u32,
     /// MAP_EQ succeeded: port changes arrive as events (5.8).
@@ -159,7 +161,7 @@ impl Eq {
     /// Consumer index, not re-armed (4.6), in UAR page eqn / 4 (1.4).
     fn doorbell(&self, pci: &mut PciIo) {
         let off = u64::from(self.eqn / 4) * PAGE as u64 + 0x800 + 8 * u64::from(self.eqn % 4);
-        let _ = pci.mem_write32(BAR_UAR, off, (self.ci & 0xff_ffff).to_be());
+        let _ = pci.mem_write32(self.bar, off, (self.ci & 0xff_ffff).to_be());
     }
 }
 
@@ -215,6 +217,8 @@ pub struct Port {
     mac: [u8; 6],
     link_up: bool,
     uar: u32,
+    /// PCI I/O's `BarIndex` for the UAR BAR (`Hca::uar_bar`).
+    uar_bar: u8,
     lkey: u32,
     rx_qpn: u32,
     tx_qpn: u32,
@@ -323,34 +327,41 @@ impl Eth {
     }
 }
 
-/// 5.1: Ethernet-only ports, and VPI ports the firmware (or SENSE_PORT)
-/// puts on Ethernet.
+/// 5.1: Ethernet-only ports and VPI ports. A VPI port is always driven as
+/// Ethernet (Linux's "unless configured otherwise", owner on #15): there is
+/// no command that sets the type; the port is Ethernet when driven with the
+/// Ethernet SET_PORT forms and Ethernet QPs. The firmware's suggestion and
+/// SENSE_PORT's answer are only logged.
 fn is_ethernet(hca: &mut Hca, pci: &mut PciIo, s: &Setup, p: &PortInfo) -> Result<bool, Fail> {
-    let eth = match p.b0 & 3 {
-        2 => true,
-        3 if s.cap.flag(12) && s.cap.flag(55) && p.b0 & 0x10 != 0 => {
-            match hca.hcr.imm(pci, hcr::SENSE_PORT, 0, u32::from(p.num), 0) {
-                Ok(v) => {
-                    let what = match v {
-                        1 => "IB",
-                        2 => "Ethernet",
-                        _ => "nothing",
-                    };
-                    uefi::println!("  port {}: SENSE_PORT says {what}", p.num);
-                    v == 2
-                }
-                Err(e) if e.needs_reset() => return hca.cmd(Err(e)),
-                // Sensing failed: fall back to the firmware's suggestion.
-                Err(_) => p.b0 & 0x08 != 0,
-            }
+    let suggests = if p.b0 & 0x08 != 0 { "Ethernet" } else { "IB" };
+    match p.b0 & 3 {
+        2 => {
+            uefi::println!("  port {}: type Ethernet (Ethernet-only port; firmware suggestion {suggests} ignored)", p.num);
+            Ok(true)
         }
-        3 => p.b0 & 0x08 != 0,
-        _ => false,
-    };
-    if !eth {
-        uefi::println!("  port {}: not Ethernet (QUERY_PORT byte 0 {:#04x}); skipped", p.num, p.b0);
+        3 => {
+            if s.cap.flag(12) && s.cap.flag(55) && p.b0 & 0x10 != 0 {
+                match hca.hcr.imm(pci, hcr::SENSE_PORT, 0, u32::from(p.num), 0) {
+                    Ok(v) => {
+                        let what = match v {
+                            1 => "IB",
+                            2 => "Ethernet",
+                            _ => "nothing",
+                        };
+                        uefi::println!("  port {}: SENSE_PORT says {what}", p.num);
+                    }
+                    Err(e) if e.needs_reset() => return hca.cmd(Err(e)),
+                    Err(_) => uefi::println!("  port {}: SENSE_PORT failed", p.num),
+                }
+            }
+            uefi::println!("  port {}: type Ethernet (VPI port, forced; firmware suggests {suggests})", p.num);
+            Ok(true)
+        }
+        _ => {
+            uefi::println!("  port {}: not Ethernet-capable (QUERY_PORT byte 0 {:#04x}); skipped", p.num, p.b0);
+            Ok(false)
+        }
     }
-    Ok(eth)
 }
 
 /// 6.1 steps 15–18: object numbers, EQ, special QPs, memory region.
@@ -404,7 +415,7 @@ fn shared(hca: &mut Hca, pci: &mut PciIo, s: &Setup) -> Result<Shared, Fail> {
             false
         }
     };
-    let eq = Eq { eqn, mem, ci: 0, mapped };
+    let eq = Eq { eqn, bar: hca.uar_bar, mem, ci: 0, mapped };
 
     // 3.12
     let sqpn = s.prof.base_sqpn as u32;
@@ -546,6 +557,7 @@ fn port_up(hca: &mut Hca, pci: &mut PciIo, sh: &mut Shared, s: &Setup, p: &PortI
         mac: p.mac,
         link_up: p.link_up,
         uar: sh.uar,
+        uar_bar: hca.uar_bar,
         lkey: sh.lkey,
         rx_qpn,
         tx_qpn,
@@ -893,7 +905,7 @@ impl Port {
         wmb();
         // 4.8.6: QPN << 8, big-endian, at UAR + 0x14.
         let off = u64::from(self.uar) * PAGE as u64 + 0x14;
-        pci.mem_write32(BAR_UAR, off, (self.tx_qpn << 8).to_be()).map_err(|e| {
+        pci.mem_write32(self.uar_bar, off, (self.tx_qpn << 8).to_be()).map_err(|e| {
             uefi::println!("  port {} tx: doorbell write failed ({:?})", self.num, e.status());
             Send::Broken
         })
