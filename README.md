@@ -5,24 +5,26 @@ A UEFI driver, in Rust (`no_std`), that gives firmware an
 
 ## Why it exists
 
-stormbootx boots a machine over NVMe/TCP using the firmware's own TCP/IP
-stack (`EFI_TCP4`). That stack needs a NIC driver underneath it. Some
-platforms have the stack but no UEFI driver for their NIC: the Supermicro X9
-blades (server1–8) have only legacy option ROMs for their Intel 10G and
-ConnectX-3 ports, so no network handle exists and `EFI_TCP4` never appears
-(stormbootx#26).
+stormbootx boots a machine over NVMe/TCP with its own TCP/IP stack (smoltcp)
+running on each NIC's `EFI_SIMPLE_NETWORK_PROTOCOL` (stormbootx#56); the
+firmware's `EFI_TCP4` is not used. That needs a UEFI driver for the NIC. The
+Supermicro X9 blades (server1–8) have only legacy option ROMs for their Intel
+10G and ConnectX-3 ports, so no SNP exists (stormbootx#26).
 
 stormbootx runs one `ConnectController` pass so the platform's own drivers
 claim their NICs, then loads and starts every `*.efi` in `\stormboot\drivers`
-on its boot media, then connects every handle again before it looks for TCP4.
-This driver is one of those files. The firmware's MNP, IP4 and TCP4 drivers are
-bind on top of the SNP it installs on each Ethernet port. There is no PXE,
-no DHCP boot and no network code of its own above the link layer.
+on its boot media, then connects every handle again and opens each SNP
+`EXCLUSIVE` for smoltcp (DHCP, ARP, TCP). Its console then prints
+`tcp4 : smoltcp over SNP (<nics>)`. This driver is one of those files and
+provides the SNP on each Ethernet port; a firmware MNP/IP4/TCP4 stack can bind
+on top of it as well. There is no PXE, no DHCP boot and no network code of its
+own above the link layer.
 
-The interim driver is iPXE's `ipxe-hermon.efi` (GPL-2 C, built from pinned
+The interim driver was iPXE's `ipxe-hermon.efi` (GPL-2 C, built from pinned
 source by stormbootx's `scripts/build-nic-drivers.sh`). It hangs server1's boot,
-so stormbootx now builds it only on request (`IPXE_DRIVERS="intelx hermon"`).
-This crate replaces it (stormbootx#27, #5).
+so stormbootx builds it only on request (`IPXE_DRIVERS="intelx hermon"`), and
+the rustnic media carries no iPXE at all. This crate replaces it (stormbootx#27,
+#5).
 
 ## Hardware
 
@@ -100,22 +102,27 @@ Run it on dev through `sc-build 'scripts/test-host.sh'`.
 ## How it ships
 
 The output is `stormnic-mlx4.efi`. The approved shipping path (#8) is inside
-stormbootx's `nic-drivers` golden, built from a pinned `STORMNIC_MLX4_REF`
-(stormbootx#34, done). The `stormbootx-rustnic` media carries it without
-`ipxe-hermon.efi`; the normal stormbootx media does not carry it. This
-repository has no standalone component golden, and sc-build retains no
-artifacts.
+stormbootx's `nic-drivers` build, from a pinned `STORMNIC_MLX4_REF` in
+stormbootx's `scripts/build-nic-drivers.sh` (stormbootx#34). The
+`stormbootx-rustnic` media (`STORMNIC_ON_MEDIA="ixgbe mlx4"`) carries it with
+no iPXE; the normal stormbootx media does not carry it. This repository has no
+standalone component golden, and sc-build retains no artifacts.
 
-The pin decides what a boot tests: cef8dc5 (stormbootx#34) is the #1–#3 check
-(bring-up, round trip, release). #4 needs the pin moved to the SNP commit or
-later; the check is stormbootx printing `tcp4 : available` on server1 with only
-this driver for the ConnectX-3. The master handles the media boot and console
-capture.
+The pin is `cf37f8b` (v0.2.1) as of 2026-10-04; stormbootx#66 asks for v0.2.2
+(the link and module lines). A boot of the rustnic media is the hardware
+check: stormbootx prints `tcp4 : smoltcp over SNP (...)` with this driver's
+`port N SNP: initialized` and `port N rx:` lines behind it. The master handles
+the media boot and console capture.
 
 ## Status
 
 Driver binding (#1), the firmware command interface (#2), the Ethernet data
-path (#3) and the SNP (#4); hardware acceptance of each is pending on server1.
+path (#3) and the SNP (#4) are done and were checked on metal on 2026-10-01:
+on server3 (X9, AMI Aptio 4, v0.2.1) every command through INIT_HCA, port
+bring-up, steering, the SNP and a transmitted DHCP discover; on server1 the
+ConnectX-3 reached link at 10G. A received frame and a lease through this
+driver have not been seen yet (#18), nor are the spec's section 7 hardware
+checks recorded (#18, #12).
 The image is an EFI boot-service driver (`build.rs` sets the PE subsystem;
 `scripts/pe-subsystem.sh IMAGE` checks it is 11). Its entry point installs
 `EFI_DRIVER_BINDING_PROTOCOL` and returns.
@@ -160,7 +167,7 @@ the raw QUERY_DEV_CAP bytes 0x10–0xa7 and the ICM layout, which is what the
 spec's hardware checklist (section 7) asks for. A successful start looks like
 
 ```
-stormnic-mlx4 0.2.0: driver binding installed (15b3:1003 ConnectX-3, 15b3:1007 ConnectX-3 Pro)
+stormnic-mlx4 0.2.2: driver binding installed (15b3:1003 ConnectX-3, 15b3:1007 ConnectX-3 Pro)
 stormnic-mlx4: 0000:05:00.0 15b3:1003 ConnectX-3:
   Supported: yes
 stormnic-mlx4: 0000:05:00.0 15b3:1003 ConnectX-3:

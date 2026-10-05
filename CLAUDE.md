@@ -40,23 +40,31 @@ the target dir.
 ## How it ships
 
 No standalone component golden. The owner approved shipping inside stormbootx's
-`nic-drivers` golden from a pinned `STORMNIC_MLX4_REF` (#8; stormbootx#29).
-The mlx4 integration is tracked in stormbootx#34 (#29 closed with ixgbe only).
-Until it lands, `--drivers DIR` is the manual
-media assembly interface, not a way to retain an sc-build artifact. sc-build
-keeps no image. The media/golden work belongs to stormbootx; do not create a
-persistent build checkout or copy artifacts out of sc-build.
+`nic-drivers` build from a pinned `STORMNIC_MLX4_REF` (#8). stormbootx#34 did
+the mlx4 integration: `scripts/build-nic-drivers.sh` builds this crate at the
+pin, and the `stormbootx-rustnic` media (`STORMNIC_ON_MEDIA="ixgbe mlx4"`)
+carries it with no iPXE. The pin is `cf37f8b` (v0.2.1) as of 2026-10-04;
+stormbootx#66 asks for v0.2.2. `--drivers DIR` is the manual media assembly
+interface, not a way to retain an sc-build artifact. sc-build keeps no image.
+The media/golden work belongs to stormbootx; do not create a persistent build
+checkout or copy artifacts out of sc-build.
 
-No configuration, ports or APIs; the only interface is the driver binding
-(README, "Interfaces and configuration").
+No configuration, ports or APIs; the only interface is the driver binding and
+the SNP children (README, "Interfaces and configuration").
 
 ## Test
 
-Put the built `.efi` in a stormbootx ISO's `\stormboot\drivers`, **without**
-`ipxe-hermon.efi` (`scripts/build-boot-agent.sh --iso --drivers DIR` in
-stormbootx). Boot server1 from the virtual CD, which the stormcentral minismbd
-serves as `\boot\stormbootx.iso`. Ask the master to swap the ISO and boot
-the blade; the master holds the BMC and console access.
+Host tests: `sc-build 'scripts/test-host.sh'` (`test/bars.rs`).
+
+Hardware: put the built `.efi` in a stormbootx ISO's `\stormboot\drivers`,
+**without** `ipxe-hermon.efi` (`scripts/build-boot-agent.sh --iso --drivers DIR`
+in stormbootx), or use the rustnic golden at the current pin. Boot a blade from
+the virtual CD, which the stormcentral minismbd serves as `\boot\stormbootx.iso`.
+**The blade boot is the master's job, not an owner decision** (master on #1,
+2026-09-30): ask the master on the issue, never with `needs-owner`;
+stormcentral#237 is to settle a proper hardware-boot request. stormbootx does
+not use the firmware's TCP4: its console line is `tcp4 : smoltcp over SNP
+(<nics>)`, never `tcp4 : available`.
 
 ## Version
 
@@ -64,145 +72,27 @@ the blade; the master holds the BMC and console access.
 
 ## Work plan
 
-### Issue #1 media dependency recheck (2026-09-28)
+Done (history in git and CHANGELOG.md):
 
-- [x] Re-read #1, open issues and the current media implementation.
-  stormbootx#29 is closed, but its build script only integrates ixgbe;
-  it has no `STORMNIC_MLX4_REF` or mlx4 build. The available server1 SOL
-  contains ixgbe binding evidence, but no stormnic-mlx4 lines.
-- [x] File the missing mlx4 integration as stormbootx#34.
-- [x] Move #1 behind stormbootx#34; stormcentral confirmed the item moved
-  back in line (retaining the historical #29 dependency).
-- [x] Correct shipping references, push, and verify with sc-build at
-  a4c8194: release UEFI build and PE subsystem 11 check passed, remote exit 0.
-  The drive was deleted. A local read-only telemetry warning followed success.
-  No runtime change or version bump. Keep #1 open until its hardware
-  acceptance evidence exists; this needs no new owner decision.
+- [x] #1 driver binding, #2 firmware command interface, #3 Ethernet data path, #4 SNP on a child handle per
+  Ethernet port. Closed 2026-10-01 on server3 (X9, `golden-stormbootx-rustnic-bde9ae3a566c4d7d`, v0.2.1):
+  binding, every command through INIT_HCA, SET_PORT/INIT_PORT, steering, SNP installed, TX of a DHCP discover;
+  and server1 link-ok at 10G (DAC on the CRS326 sfp-sfpplus1, fixed 10G). RX and a lease were not seen (#18).
+- [x] #9 `Cargo.lock` committed, builds `--locked`.
+- [x] #10 `docs/spec/connectx3.md` (the only source; BSD notice in `NOTICE`).
+- [x] #15 UAR `BarIndex` from `GetBarAttributes` (v0.2.1), VPI ports forced to Ethernet, link/module
+  diagnostics at link wait and link changes (v0.2.2). v0.2.2 pin requested in stormbootx#66.
 
-### Issue #1 verification follow-up (2026-09-28)
+Open:
 
-- [x] Read #1 and review open issues. #8 records the owner's decision to build
-  now; #2–#4 remain subsequent implementation work, and #7 tracks logging gaps.
-- [x] Update shipping docs to the pinned-driver media path approved in #8 and
-  stormbootx#29; this repository still has no standalone golden.
-- [x] Push, then rerun the release UEFI build and PE subsystem check with sc-build.
-  Passed at f077b04 on 2026-09-28: release x86_64-unknown-uefi build and
-  scripts/pe-subsystem.sh reported subsystem 11 (remote exit 0).
-- [x] Record verification and move #1 behind stormbootx#29 for hardware acceptance.
-  stormcentral confirmed #1 moved back in line after stormbootx#29.
-  Do not close #1 until the required Supported/Start console evidence exists.
-
-### Issue #1 media ready, hardware boot pending (2026-09-29)
-
-- [x] stormbootx#34 closed: rustnic media pins mlx4@cef8dc5 with no iPXE (golden
-  `golden-stormbootx-rustnic-b4f33d9566d6127e`); OVMF showed `stormnic-mlx4 0.1.0: driver binding installed`.
-- [x] server1 SOL checked 2026-09-29: only the older ixgbe-only run, no stormnic-mlx4 lines. The rustnic boot has not run.
-- [x] Asked the owner/master on #1 to boot server1 from the rustnic golden (one boot also checks #2 and #3);
-  #1 waits in Needs you. Close #1 when the SOL shows `driver binding installed`, `0000:05:00.0 15b3:1003`,
-  `Supported: yes` and `Start: bound; bringing up the firmware` (the old "no firmware bring-up yet" wording is gone).
-- [x] Rechecked 2026-09-29: server1 SOL (last written 21:34) still has only ixgbe runs, no stormnic-mlx4 lines.
-  Current media is `golden-stormbootx-rustnic-ab4e848a4dcfcaf3` (mlx4 v0.2.0, stormbootx#50); one boot on it checks
-  #1–#4. Pass for #1 accepts `stormnic-mlx4 0.1.0` or `0.2.0: driver binding installed`. Question re-posted on #1, needs-owner.
-
-### Issue #9 commit Cargo.lock (2026-09-29)
-
-- [x] Generate `Cargo.lock` on dev (no cargo on this VM): `sc-build 'cargo generate-lockfile && cat Cargo.lock'`,
-  resolving `uefi` 0.39.x / `uefi-raw` 0.15.x from the existing constraints. Commit it (not in `.gitignore`).
-  Done at 89798b1: uefi 0.39.0, uefi-raw 0.15.1, 17 packages (0.41 is available but outside `0.39`).
-- [x] Push, then verify with `sc-build` using `--locked` (release UEFI build + PE subsystem 11 check).
-  Passed at b89d437: locked release build, subsystem 11, 23040 bytes, `Cargo.lock` unchanged, exit 0.
-- [x] Document `--locked` in README/CLAUDE.md build commands; tell stormbootx#34 it can build locked; close #9.
-
-- [ ] Driver scaffold: `EFI_DRIVER_BINDING_PROTOCOL` matching 15b3:1003/1007, built as an EFI boot-service driver
-  - In progress (#1): `build.rs` links `/subsystem:efi_boot_service_driver`; entry installs the binding via `uefi::driver::install`;
-    `Supported` reads vendor/device through our own `EFI_PCI_IO_PROTOCOL` binding (uefi-raw has none) and matches 15b3:1003/1007;
-    `Start` logs the bind and, until bring-up exists, releases PCI I/O and returns `UNSUPPORTED` so the NIC is left to any other driver.
-    Built on dev 2026-09-28 at 3b1ce49: PE subsystem 11, 23040 bytes. Code side done.
-    Remaining (needs the master): stormbootx ISO with this .efi and no ipxe-hermon.efi, boot server1, SOL shows
-    `driver binding installed` then `0000:05:00.0 15b3:1003 ConnectX-3:` with `Supported: yes` and `Start: bound`. Close #1 on that.
-- [ ] Firmware command interface (from the spec): HCR commands, QUERY_FW, MAP_FA/RUN_FW, QUERY_DEV_CAP, INIT_HCA, ICM mapping
-  - Owner decided 2026-09-29: implement from `docs/spec/connectx3.md` (merged, #10), BSD notice in `NOTICE`.
-  - Plan (#2, in progress): `src/pci.rs` gains BAR MMIO, config writes, AllocateBuffer/Map/Unmap/FreeBuffer, Attributes,
-    GetBarAttributes; `src/dma.rs` DMA common buffers + page-list splitting (spec 3.2); `src/hcr.rs` HCR protocol (2.x);
-    `src/fw.rs` ownership (1.5), reset (1.6), QUERY_FW, MAP_FA/RUN_FW, MOD_STAT_CFG, QUERY_DEV_CAP, QUERY_PORT,
-    QUERY_ADAPTER, profile (3.7), SET_ICM_SIZE/MAP_ICM_AUX/MAP_ICM, INIT_HCA, QUERY_FUNC, and the teardown (3.13).
-    `Start` runs bring-up to INIT_HCA, logs it all (section 7 items), tears it down (CLOSE_HCA, UNMAP_*, release
-    ownership, restore PCI attributes) and still returns `UNSUPPORTED` until #3/#4 exist. On any failure: reset, never free
-    memory the device may still own. Hardware acceptance: server1 SOL on stormbootx-rustnic media (stormbootx#34/#50).
-  - Code done at b532094; sc-build 2026-09-29: locked release build, PE subsystem 11, 47616 bytes; clippy clean apart
-    from the old `inspect_err` note in main.rs. Remaining: hardware run on server1 (the master swaps in rustnic media with
-    this driver pinned, boots the blade). Pass = SOL shows `INIT_HCA (0x0): ok` … `firmware stopped, memory returned` and
-    `Start: firmware check passed`. That run also answers spec section 7 items 1–4 (toggle, ownership/semaphore, revision,
-    small profile) and 12 (port type); record them on #2 and in the spec's checklist before starting #3.
-  - 2026-09-29: status posted on #2, stormbootx#34 asked to pin 69efddd+; #2 moved behind stormbootx#34 (stormcentral confirmed).
-    #2 stays open until the server1 SOL shows the pass lines.
-  - 2026-09-29 recheck: v0.2.0 (#4) keeps the device, so `Start: firmware check passed` is gone and `firmware stopped,
-    memory returned` prints only on `Stop`. Pass restated for v0.2.0 media (`golden-stormbootx-rustnic-ab4e848a4dcfcaf3`):
-    SOL shows `INIT_HCA (0x0): ok`, `firmware bring-up complete`, then `port N SNP: initialized`. A boot of the cef8dc5
-    golden (`golden-stormbootx-rustnic-7f260c307c5ee784`) still passes on the old lines. server1 SOL (21:34) has no
-    stormnic-mlx4 lines yet; question posted on #2, needs-owner (same boot as #1, #3, #4).
-- [ ] Ethernet data path: EQ, CQ, one send and one receive QP (raw Ethernet), MAC from QUERY_PORT, port bring-up and link state
-  - Plan (#3, 2026-09-29, from spec sections 4–6): `src/dma.rs` gains a copyable `Mem` view (DmaBuf derefs to it);
-    `src/eth.rs` creates, in Linux's order, EQ (256 × 32 B) + MAP_EQ, CONF_SPECIAL_QP, the physical MPT (L_Key), then per
-    Ethernet port: RX/TX CQs, RX QP (256 × 2 KiB buffers) and TX QP (128 TXBBs), MTT entries written straight into ICM,
-    SET_PORT MAC_TABLE/GENERAL (+RQP_CALC in A0), INIT_PORT, B0 MCG attach (port MAC unicast, broadcast), SET_MCAST_FLTR
-    DISABLE. Every created object pushes its undo command; teardown pops them LIFO before CLOSE_HCA (spec 6.4 order), and
-    all queue memory is freed only after UNMAP_FA or a reset. Self-test per port: wait ≤10 s for link, broadcast a
-    DHCPDISCOVER (and an ARP probe for an address learned from the wire), log every frame for 6 s; pass line
-    `port N: broadcast round trip ok`. Ports are handled one after the other (object numbers are per port, so #4 can keep
-    both up). Still returns `UNSUPPORTED` (no SNP until #4). Hardware acceptance: server1 SOL, same media as #2.
-  - Code done 2026-09-29 (bd7b8f9 + fixes); sc-build: locked release build, PE subsystem 11, 71680 bytes, clippy clean
-    apart from the old `inspect_err` note. Remaining: hardware run on server1 (same rustnic media as #2, pinned to this
-    commit or later). Pass = SOL shows `port N: broadcast round trip ok: ...` for the cabled port, then `firmware stopped,
-    memory returned`. The same log answers spec section 7 items 5–11, 13 and 14; record them on #3 and in the spec.
-    Close #3 on that; #3 waits on stormbootx#34 like #2.
-  - 2026-09-29 recheck: v0.2.0 dropped the round-trip self-test, so `broadcast round trip ok` is gone and `firmware stopped,
-    memory returned` prints only on `Stop`. Pass restated for v0.2.0 media (`golden-stormbootx-rustnic-ab4e848a4dcfcaf3`):
-    SOL shows `port N SNP: initialized, media present` and stormbootx `tcp4 : available`, with traffic past it (a DHCP
-    lease or the portal connection; g16 runs DHCP, microdns#13). The cef8dc5 golden
-    (`golden-stormbootx-rustnic-7f260c307c5ee784`) still passes on the old lines. Spec section 7 items 5–11, 13, 14 are
-    read from whichever log it is. server1 SOL (21:35) has no stormnic-mlx4 lines; question on #3, needs-owner.
-- [ ] `EFI_SIMPLE_NETWORK_PROTOCOL` on a child handle with a MAC device path
-  - Plan (#4, 2026-09-29, spec 6.1 step 28, 6.2–6.4, UEFI spec SNP): `Start` keeps the device: `fw::open` (bring-up,
-    returns the `Hca`), `eth::open` (every Ethernet port up to steering, no round-trip check any more), a wait of at
-    most 5 s for link, then one child handle per Ethernet port with a MAC device path (parent path + MAC node,
-    IfType 1) and an SNP, the parent PCI I/O opened BY_CHILD_CONTROLLER. The driver binding is our own
-    (uefi-rs's refuses `Stop` with children). SNP: Start/Stop/Initialize/Shutdown state machine, Transmit copies
-    into the bounce buffer and GetStatus returns the caller's buffer once its CQE is reaped, Receive leaves a frame
-    queued on BUFFER_TOO_SMALL, receive filters unicast/broadcast/multicast (B0: multicast MACs attached to the RX
-    QP, never detached; software filter on top; own-source frames dropped, 5.10), MCastIpToMac, WaitForPacket,
-    MediaPresent from port-change events (QUERY_PORT fallback when MAP_EQ failed). Every SNP call runs at
-    TPL_CALLBACK. `Stop` uninstalls the children, then tears down (6.4) and frees; ExitBootServices runs 6.4's
-    command teardown silently, without freeing, releases ownership and clears bus master (bus master only, if a
-    command fails). Hardware acceptance: stormbootx prints `tcp4 : available` on server1 with rustnic media pinned
-    to this commit or later.
-  - Code done 2026-09-29 (778bc55, ffea25f); sc-build: locked release build with no warnings, PE subsystem 11, clippy
-    clean (one `vec_box` allowed: the boxes keep the SNP addresses fixed). Released as v0.2.0. Remaining: stormbootx
-    pins `STORMNIC_MLX4_REF` to v0.2.0 on the rustnic media (stormbootx#50), the master boots
-    server1; pass = `tcp4 : available` and `port 1 SNP: initialized`. Close #4 on that.
-- [x] #15 AMI Aptio 4 (X9, server3): PCI I/O refuses `BarIndex` 2, so every UAR doorbell fails
-  - Plan (2026-10-01): AMI's PciIo counts BARs (a 64-bit BAR takes one index; UAR = 1), EDK2 counts registers (UAR = 2;
-    spec 1.2). New UEFI-independent `src/bars.rs` picks the index: candidates are the register index and the BAR count
-    before it; each is asked for `GetBarAttributes`, and the one whose descriptor base equals the address in config space
-    wins (else the only one that answered; else the register index). Resolved once after the reset in `fw::start`, kept in
-    `Hca`, used by the EQ and TX doorbells, the UAR size check and the catastrophic-buffer BAR from QUERY_FW (× 2 is a
-    register index). `test/bars.rs` runs it against both schemes (`scripts/test-host.sh`, rustc --test, on dev).
-  - Port type: QUERY_PORT said Ethernet-capable and "suggests IB"; spec 5.1 has no command that sets the port type (the
-    port is Ethernet when driven with SET_PORT op_mod 1 and Ethernet QPs, which we do). Print the type used and why.
-    Link changes already print (`port N: link up/down`) whenever the SNP is polled.
-  - Owner made it P0 (2026-10-01): also scan indexes 0–5 for the base, and force VPI ports to Ethernet (done; the X9
-    port is Ethernet-only anyway). Code done and released as v0.2.1 (cf37f8b): sc-build locked release, subsystem 11,
-    79872 bytes, clippy clean, `scripts/test-host.sh` 9/9 (EDK2 → 2, AMI → 1). stormbootx#64 asks for the rustnic pin
-    to v0.2.1; #15 moved behind it. Close #15 when server3's console shows `BarIndex 1`, no `doorbell write failed`,
-    and `port 1 SNP: initialized`.
-  - 2026-10-01: verified on server3 (golden-stormbootx-rustnic-bde9ae3a566c4d7d, v0.2.1): `BarIndex 1`, every command ok,
-    SNP installed, TX of a DHCP discover. Left: `port 1: no link after 5 s`. Owner asked for the port's speed and module
-    info at link down. Spec 3.5 gives autoneg (0x01 bit 7), speed code (0x05), transceiver type/OUI (0x18), wavelength
-    (0x1c), transceiver code (0x20); no supported/advertised speed masks (that would be ACCESS_REG/PTYS, not in the spec).
-    Plan: decode those in `PortInfo`, print them at link up/down and at the 5 s timeout; release v0.2.2; close #15 with
-    the link left to dellsw#14 (switch side).
-  - Done: b993312 + v0.2.2 (c56601f); sc-build locked release, subsystem 11, 81920 bytes, clippy clean, host tests 9/9.
-    stormbootx#66 asks for the rustnic pin to v0.2.2. #15 closed: driver side verified on server3; the missing link is
-    dellsw#14's (switch side), and v0.2.2's console lines are the data for it.
-- [ ] Test on server1's ConnectX-3 port (f4:52:14:84:b7:e0, link up on g16): stormbootx prints `tcp4 : available` with only this driver on the media
-- [ ] Retire `ipxe-hermon.efi` from the stormbootx media (stormbootx#27)
+- [ ] #18 RX through this driver on metal, and spec section 7 HW-checks 1–14 recorded (in §7 and on #18).
+  Items 1–4 and 12 can be read from the server3 v0.2.1 console now. Then one rustnic boot of server1
+  (DAC links at 10G) through the master: pass = stormbootx `tcp4 : smoltcp over SNP`, `stormnic-mlx4: port 1 rx:`
+  lines and a lease through f4:52:14:84:b7:e0. Same boot gives §7 items 5–11, 13, 14 and 16.
+- [ ] #12 §7 items 15 (OS hand-off, `mlx4_core` probe after ExitBootServices) and 16 (`memory region: MPT …, L_Key …`,
+  already on the server3 console).
+- [ ] #17 / #20 DAC link diagnostics beyond spec 3.5 (module EEPROM, PTYS speed masks, forced speed): spec first (#20).
+- [ ] #16 quiet console by default, trace behind a verbose switch.
+- [ ] #7 unlogged identify/Start error paths. #13 byte-reproducible image.
+- [ ] #5 retire `ipxe-hermon.efi` from the stormbootx media (stormbootx#27; still opt-in there,
+  `IPXE_DRIVERS="intelx hermon"`).

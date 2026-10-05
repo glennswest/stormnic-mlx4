@@ -4,6 +4,9 @@
 
 <!-- New unreleased changes go here -->
 
+### 2026-10-04
+- **docs:** Documentation refreshed from the code. README: stormbootx runs smoltcp over the SNP (not the firmware's TCP4) and opens it `EXCLUSIVE`; shipping pin is `cf37f8b` (v0.2.1, v0.2.2 in stormbootx#66) and the hardware check is `tcp4 : smoltcp over SNP` plus `port N rx:` (#19); status says #1–#4 were checked on server3/server1 with RX and §7 still open (#18, #12); console sample shows 0.2.2. CLAUDE.md: shipping and Test sections updated (blade boots are the master's job, not `needs-owner`; host tests), work plan collapsed to done/open with the remaining hardware work on #18, #12, #17/#20 (#14). No code change.
+
 ### 2026-10-01
 - **docs:** #15 verified on server3 and closed; v0.2.2 pin requested in stormbootx#66 (work plan).
 - **docs:** #15 released as v0.2.1, waiting on the rustnic pin (stormbootx#64) and a server3 boot (work plan).
