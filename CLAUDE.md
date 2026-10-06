@@ -111,4 +111,7 @@ Open:
   shape: `src/console.rs` (`say!`/`trace!`/`alarm!`/`note!`), `src/trace.rs` (16-line replay ring, `test/trace.rs`),
   `verbose` feature, `StormnicVerbose` (GUID ce1479a2-…-c909ea5b8e0b). sc-build passes (both images, host tests
   9 + 8 + 3). Pin asked in stormbootx#104. Left: a rustnic boot at that pin showing the one line per port.
-- [ ] #7 unlogged identify/Start error paths. #13 byte-reproducible image.
+- [ ] #7 unlogged identify/Start error paths.
+- [ ] #13 byte-reproducible image. **In progress (2026-10-06):** `scripts/repro-check.sh` builds the commit twice in one
+  sc-build job, in two checkout directories with two `CARGO_HOME`s, and compares sha256 and embedded build paths.
+  Then make the build path-independent if it is not (stormnic-ixgbe#12 has no fix yet).
