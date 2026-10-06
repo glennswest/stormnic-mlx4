@@ -25,10 +25,12 @@
 extern crate alloc;
 
 mod bars;
+mod diag;
 mod dma;
 mod eth;
 mod fw;
 mod hcr;
+mod module;
 mod pci;
 mod snp;
 

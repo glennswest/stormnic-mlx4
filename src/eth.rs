@@ -17,6 +17,7 @@ use core::time::Duration;
 
 use uefi::boot;
 
+use crate::diag;
 use crate::dma::{Mem, PAGE};
 use crate::fw::{self, fail, Fail, Hca, PortInfo, Setup};
 use crate::hcr;
@@ -247,6 +248,11 @@ pub struct Port {
 pub struct Eth {
     sh: Shared,
     pub ports: Vec<Port>,
+    /// QUERY_DEV_CAP ETH_PROT_CTRL and ETH_BACKPL_AN_REP (5.12, 5.13).
+    ptys_offered: bool,
+    an_rep: bool,
+    /// The firmware answered a PTYS query; `Some(false)` stops asking.
+    ptys_answers: Option<bool>,
 }
 
 /// Create the shared objects and bring up every Ethernet port (6.1 steps
@@ -256,7 +262,13 @@ pub fn open(hca: &mut Hca, pci: &mut PciIo, s: &Setup) -> Result<Eth, Fail> {
         return Err(fail!("data path: needs command interface revision 3 (5.5)"));
     }
     let sh = shared(hca, pci, s)?;
-    let mut eth = Eth { sh, ports: Vec::new() };
+    let mut eth = Eth {
+        sh,
+        ports: Vec::new(),
+        ptys_offered: s.cap.eth_prot_ctrl,
+        an_rep: s.cap.eth_backpl_an_rep,
+        ptys_answers: None,
+    };
     for p in &s.ports {
         if is_ethernet(hca, pci, s, p)? {
             let port = port_up(hca, pci, &mut eth.sh, s, p)?;
@@ -289,12 +301,30 @@ impl Eth {
     }
 
     /// Print the speed and module of every port whose link changed since
-    /// (the event handler has no HCA to ask QUERY_PORT with).
+    /// (the event handler has no HCA to ask QUERY_PORT with), and at
+    /// link-down the module EEPROM and PTYS too (#17).
     pub fn report_news(&mut self, hca: &mut Hca, pci: &mut PciIo) {
         for i in 0..self.ports.len() {
             if core::mem::take(&mut self.ports[i].news) {
                 self.report_link(hca, pci, i);
+                if !self.ports[i].link_up {
+                    self.diagnose(hca, pci, i);
+                }
             }
+        }
+    }
+
+    /// The DAC diagnostics of #17 for port `i`: the module EEPROM (5.11)
+    /// and the PTYS link modes (5.12), read-only. A firmware that refused
+    /// PTYS once is not asked again.
+    fn diagnose(&mut self, hca: &mut Hca, pci: &mut PciIo, i: usize) {
+        if hca.broken() {
+            return;
+        }
+        let num = self.ports[i].num;
+        diag::module(hca, pci, num);
+        if self.ptys_answers != Some(false) && !hca.broken() {
+            self.ptys_answers = Some(diag::ptys(hca, pci, num, self.ptys_offered));
         }
     }
 
@@ -325,7 +355,9 @@ impl Eth {
                 for i in 0..self.ports.len() {
                     self.ports[i].news = false;
                     self.report_link(hca, pci, i);
+                    self.diagnose(hca, pci, i);
                 }
+                diag::speed_control(self.ptys_offered, self.an_rep);
                 return;
             }
             if waited >= max_ms {
@@ -336,7 +368,9 @@ impl Eth {
                         uefi::println!("  port {num}: no link after {} s; reported as no media", max_ms / 1000);
                     }
                     self.report_link(hca, pci, i);
+                    self.diagnose(hca, pci, i);
                 }
+                diag::speed_control(self.ptys_offered, self.an_rep);
                 return;
             }
             boot::stall(ms(100));

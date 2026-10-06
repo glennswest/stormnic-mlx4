@@ -96,7 +96,9 @@ and note it in the changelog.
 ## Tests
 
 `scripts/test-host.sh` builds and runs the host tests of the UEFI-independent
-code against simulated firmware (`test/bars.rs`: EDK2 and AMI BAR numbering).
+code against simulated firmware (`test/bars.rs`: EDK2 and AMI BAR numbering) and
+the link-diagnostics decoding (`test/module.rs`: module EEPROM fields, MAD
+status codes, request splitting, PTYS link modes; spec 5.11–5.12).
 Run it on dev through `sc-build 'scripts/test-host.sh'`.
 
 ## How it ships
@@ -145,7 +147,10 @@ The image is an EFI boot-service driver (`build.rs` sets the PE subsystem;
   RESET → INIT → RTR → RTS, SET_PORT MAC table and general settings (MTU 1526,
   and RQP_CALC with A0 steering), INIT_PORT, B0 steering entries for the port
   MAC and broadcast, SET_MCAST_FLTR off. It waits up to 5 s for link on every
-  port, then installs the SNP children (`src/snp.rs`) and keeps the device.
+  port, prints the link diagnostics of #17 (`src/diag.rs`: the module EEPROM
+  through MAD_IFC, spec 5.11, and a read-only ACCESS_REG PTYS query, spec 5.12),
+  then installs the SNP children (`src/snp.rs`) and keeps the device. It never
+  forces a speed: the PTYS write of spec 5.13 is not used.
 - `Stop` uninstalls the children (when asked for them), then tears the device
   down: CLOSE_PORT, 2RST_QP, HW2SW_CQ per port, HW2SW_MPT, CONF_SPECIAL_QP 0,
   MAP_EQ unmap, HW2SW_EQ, CLOSE_HCA, UNMAP_ICM, UNMAP_ICM_AUX, UNMAP_FA,
@@ -160,7 +165,8 @@ The image is an EFI boot-service driver (`build.rs` sets the PE subsystem;
 Source layout: `src/hcr.rs` (HCR protocol, spec 2), `src/fw.rs` (ownership,
 reset, bring-up, profile, teardown, spec 1, 3 and 6.4), `src/eth.rs` (EQ, CQs,
 QPs, MTT, memory region, port setup, steering, send/receive, link state, spec
-4–6), `src/snp.rs` (the SNP and the child handles), `src/dma.rs` (DMA buffers,
+4–6), `src/diag.rs` and `src/module.rs` (link diagnostics: module EEPROM and
+PTYS, spec 5.11–5.13), `src/snp.rs` (the SNP and the child handles), `src/dma.rs` (DMA buffers,
 big-endian accessors, page-list split, spec 3.2), `src/pci.rs`.
 
 Every decision about a ConnectX-3 is printed to the console, including every
@@ -193,8 +199,18 @@ stormnic-mlx4: 0000:05:00.0 15b3:1003 ConnectX-3:
   port 1: up, link down
 stormnic-mlx4: port 1: link up
   link up on every Ethernet port after 2300 ms
-  port 1: link up, speed code 0x01 (10G XFI), autoneg on
+  port 1: link up, speed code 0x01 (10G XFI), autoneg enabled, complete
   port 1: module: transceiver type 0x.., vendor OUI ..:..:.., wavelength ..., code 0x...
+  port 1: module EEPROM: HCR status 0, MAD status 0, identifier 0x03 (SFP/SFP+)
+  port 1: module EEPROM: eeprom 00: 03 04 21 ...
+  ...
+  port 1: module EEPROM: SFP/SFP+: passive copper cable (byte 8 0x04), connector 0x21 (copper pigtail)
+  port 1: module EEPROM: length 3 m (byte 18), nominal rate 10300 MBd (byte 12), ...
+  port 1: module EEPROM: vendor "..." OUI ..:..:.., part "..." rev "..", serial "..."
+  port 1: module EEPROM: cable compliance .. .. (bytes 60-61), diagnostics ... (byte 92 0x..)
+  port 1: PTYS: not offered (QUERY_DEV_CAP 0x7a bit 5, ETH_PROT_CTRL, is 0); one read-only query for spec 7 item 18
+  port 1: PTYS: ACCESS_REG failed (HCR status above); no link-mode masks
+  speed control: not offered (ETH_PROT_CTRL 0): no forced speed or autoneg setting on this card (5.13); set the switch port
   port 1: SNP installed on a child handle, MAC f4:52:14:84:b7:e0, media present
   Start: 1 SNP child handle(s) installed
 stormnic-mlx4: port 1 SNP: started
@@ -213,9 +229,19 @@ timeout also prints the catastrophic error buffer, and `Start` ends with
 bring-up failed, releasing the NIC`. Per port: `port N: not Ethernet (...);
 skipped`, `port N: no link after 5 s; reported as no media`, link changes
 (`stormnic-mlx4: port N: link up/down`), each followed by what QUERY_PORT
-reports about the link and module (speed code, autonegotiation, transceiver
-type, vendor OUI, wavelength and code, spec 3.5; the speed means nothing
-without link; the PTYS speed masks of spec 5.12 need QUERY_DEV_CAP 0x7a bit 5, which the blades' firmware 2.30.8000 does not set, spec 5.13), error completions (`rx:`/`tx: error
+reports about the link and module (speed code, autonegotiation enabled and
+complete, transceiver type, vendor OUI, wavelength and code, spec 3.5; the
+speed means nothing without link). After the link wait and at every link-down
+the link diagnostics follow (#17): `port N: module EEPROM:` with the MAD_IFC
+HCR status, the MAD status (a cable-info error such as `0x0400 ... no EEPROM
+(passive copper cable)`, which is not a fault on a DAC) and the identifier,
+then for an SFP or QSFP the raw bytes and their SFF labels (passive or active
+cable, length, vendor, part, serial; spec 5.11.5); `port N: PTYS:` with the
+supported, advertised, operating and partner link modes when the firmware
+answers ACCESS_REG (spec 5.12; without QUERY_DEV_CAP 0x7a bit 5 it is one
+read-only query for spec 7 item 18, not repeated once refused); and `speed
+control:` saying whether the card offers a forced speed (spec 5.13; the
+blades' firmware 2.30.8000 does not). Error completions (`rx:`/`tx: error
 completion, syndrome ...`) and EQ events (CQ and QP errors). Other outcomes:
 `Supported: already has an SNP, leaving it to the platform's driver`,
 `Supported: no, PCI I/O is held (<status>)`, `Start: cannot claim PCI I/O

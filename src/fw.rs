@@ -280,6 +280,10 @@ pub struct DevCap {
     /// Extended flags 2 (0x70).
     pub flags2: u32,
     pub bmme: u32,
+    /// 0x7a bit 5: ETH_PROT_CTRL, the PTYS register may be used (3.4, 5.12).
+    pub eth_prot_ctrl: bool,
+    /// 0x9c bit 0: ETH_BACKPL_AN_REP (3.4, 5.13).
+    pub eth_backpl_an_rep: bool,
     pub uar_bytes: u64,
     /// Entry sizes, indexed like `Profile::t`.
     pub entry: [u64; TABLES],
@@ -306,8 +310,10 @@ pub struct PortInfo {
     pub mtu_cap: u16,
     pub log_macs: u8,
     pub mac: [u8; 6],
-    /// Byte 1 bit 7: autonegotiation.
+    /// Byte 1 bit 7: autonegotiation enabled (ANE).
     pub autoneg: bool,
+    /// Byte 0 bit 6: autonegotiation complete (ANC; 3.5, 5.13).
+    pub an_complete: bool,
     /// Byte 5 & 0x6f: link speed code (5.8).
     pub speed: u8,
     /// 0x18: transceiver type (31:24) and vendor OUI (23:0).
@@ -337,13 +343,14 @@ impl PortInfo {
     /// so a port without link can be matched to the switch side.
     pub fn print_link(&self) {
         uefi::println!(
-            "  port {}: link {}, speed code {:#04x} ({}{}), autoneg {}",
+            "  port {}: link {}, speed code {:#04x} ({}{}), autoneg {}, {}",
             self.num,
             if self.link_up { "up" } else { "down" },
             self.speed,
             self.speed_name(),
             if self.link_up { "" } else { "; no link, so not a negotiated speed" },
-            if self.autoneg { "on" } else { "off" }
+            if self.autoneg { "enabled" } else { "not enabled" },
+            if self.an_complete { "complete" } else { "not complete" }
         );
         if self.xcvr == 0 && self.wavelength == 0 && self.xcvr_code == 0 {
             uefi::println!("  port {}: module: no transceiver information (none plugged, or not readable)", self.num);
@@ -474,6 +481,12 @@ impl Hca {
             }
             Fail
         })
+    }
+
+    /// A command timed out or the HCR stopped answering (2.7): issue no
+    /// optional commands.
+    pub fn broken(&self) -> bool {
+        self.broken
     }
 
     /// Remember how to take an object back once it exists.
@@ -659,6 +672,8 @@ impl Hca {
             flags: o.be64(0x40),
             flags2,
             bmme: o.be32(0x94),
+            eth_prot_ctrl: o.u8(0x7a) & 0x20 != 0,
+            eth_backpl_an_rep: o.be32(0x9c) & 1 != 0,
             uar_bytes: 1 << ((o.u8(0x49) & 0x3f) + 20),
             entry,
             max_icm: o.be64(0xa0),
@@ -675,6 +690,13 @@ impl Hca {
         );
         uefi::println!("  log max: WQEs per QP {}, CQEs per CQ {}", cap.log_max_qp_wqes, cap.log_max_cqes);
         uefi::println!("  SW_CQ_INIT {}, LB_SRC_CHK {}", (flags2 >> 23) & 1, (flags2 >> 19) & 1);
+        uefi::println!(
+            "  ETH_PROT_CTRL {} (0x7a {:#04x}), ETH_BACKPL_AN_REP {} (0x9c {:08x})",
+            cap.eth_prot_ctrl as u8,
+            o.u8(0x7a),
+            cap.eth_backpl_an_rep as u8,
+            o.be32(0x9c)
+        );
 
         // 6.1 step 8.
         if log_min_page > 12 {
@@ -739,6 +761,7 @@ impl Hca {
             log_macs: o.u8(0x0a) & 0xf,
             mac: core::array::from_fn(|i| o.u8(0x12 + i)),
             autoneg: o.u8(0x01) & 0x80 != 0,
+            an_complete: o.u8(0x00) & 0x40 != 0,
             speed: o.u8(0x05) & 0x6f,
             xcvr: o.be32(0x18),
             wavelength: o.be16(0x1c),

@@ -63,6 +63,9 @@ pub const WRITE_MCG: Op = Op(0x026, "WRITE_MCG");
 pub const MGID_HASH: Op = Op(0x027, "MGID_HASH");
 pub const SET_MCAST_FLTR: Op = Op(0x048, "SET_MCAST_FLTR");
 pub const SENSE_PORT: Op = Op(0x04d, "SENSE_PORT");
+// Link diagnostics (#17; spec 5.11, 5.12).
+pub const MAD_IFC: Op = Op(0x024, "MAD_IFC");
+pub const ACCESS_REG: Op = Op(0x03b, "ACCESS_REG");
 
 /// Command status byte (spec 2.6).
 pub const STATUS_MULTI_FUNC: u8 = 0x50;
@@ -281,6 +284,14 @@ impl Hcr {
         self.outbox.zero();
         let a = self.outbox.dev;
         self.run(pci, op, op_mod, in_mod, 0, a).map(|_| ())
+    }
+
+    /// Input and output mailboxes (MAD_IFC, ACCESS_REG; spec 2.5): the
+    /// caller fills `self.inbox`; `self.outbox` is zeroed first.
+    pub fn in_out(&mut self, pci: &mut PciIo, op: Op, op_mod: u8, in_mod: u32) -> Result<(), CmdError> {
+        self.outbox.zero();
+        let (i, o) = (self.inbox.dev, self.outbox.dev);
+        self.run(pci, op, op_mod, in_mod, i, o).map(|_| ())
     }
 
     /// The first dword of the catastrophic error buffer: non-zero means the

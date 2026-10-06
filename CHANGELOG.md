@@ -5,6 +5,9 @@
 <!-- New unreleased changes go here -->
 
 ### 2026-10-06
+- **feat:** DAC link diagnostics (#17, spec 5.11–5.13). After the link wait and at every link-down, each port prints its module EEPROM read through MAD_IFC attribute 0xFF60 (identifier with HCR and MAD status, cable-info errors by name, raw bytes, SFF labels: passive/active cable, length, connector, compliance, vendor, part, serial) and a read-only ACCESS_REG PTYS query (supported/advertised/operating/partner link modes; on firmware without QUERY_DEV_CAP 0x7a bit 5 it is spec 7 item 18's one-off diagnostic, not repeated once refused). A `speed control:` line says whether the card offers a forced speed; the driver never writes PTYS. QUERY_DEV_CAP logs ETH_PROT_CTRL and ETH_BACKPL_AN_REP; the link line shows autonegotiation enabled and complete. New `src/diag.rs`, `src/module.rs`, host test `test/module.rs`.
+
+### 2026-10-06
 - **docs:** Spec addition by an independent agent from the BSD option of the Linux/FreeBSD mlx4 sources (new pinned commits in §0.2 and NOTICE): §5.11 module EEPROM read (MAD_IFC op_mod 3, attribute 0xFF60, 48-byte chunks, cable-info error codes, SFF byte meanings), §5.12 ACCESS_REG and the PTYS register (layout, link-mode bit table, gated on QUERY_DEV_CAP 0x7a bit 5), §5.13 forcing speed/autoneg (no SET_PORT path; PTYS admin write only, a real autoneg-off bit only for 1G), §7 HW-checks 17–19, rows in §2.9, §3.4, §3.5 and Appendices A, C, F. The blades' firmware 2.30.8000 reports 0x7a = 0x00, so PTYS (advertised masks, forced speed) is not offered there (#20).
 
 ### 2026-10-06
