@@ -43,8 +43,8 @@ No standalone component golden. The owner approved shipping inside stormbootx's
 `nic-drivers` build from a pinned `STORMNIC_MLX4_REF` (#8). stormbootx#34 did
 the mlx4 integration: `scripts/build-nic-drivers.sh` builds this crate at the
 pin, and the `stormbootx-rustnic` media (`STORMNIC_ON_MEDIA="ixgbe mlx4"`)
-carries it with no iPXE. The pin is `cf37f8b` (v0.2.1) as of 2026-10-04;
-stormbootx#66 asks for v0.2.3 (`0e50017`). `--drivers DIR` is the manual media assembly
+carries it with no iPXE. The pin was `cf37f8b` (v0.2.1) as of 2026-10-04;
+stormbootx#66 pinned v0.2.3 (`0e50017`); stormbootx#104 asks for v0.2.4 (`32083cd`). `--drivers DIR` is the manual media assembly
 interface, not a way to retain an sc-build artifact. sc-build keeps no image.
 The media/golden work belongs to stormbootx; do not create a persistent build
 checkout or copy artifacts out of sc-build.
@@ -94,9 +94,10 @@ Open:
 - [ ] #17 DAC link diagnostics, now specified (#20 done 2026-10-06: spec 5.11–5.13, HW-checks 17–19). Item 1
   (module EEPROM via MAD_IFC 0xFF60, spec 5.11) can be built. Items 2–3 need PTYS, gated on QUERY_DEV_CAP 0x7a
   bit 5, which the blades' firmware 2.30.8000 leaves 0 (spec 5.13): log that, no speed setting (stormbootx#80).
-  **In progress (2026-10-06):** `src/diag.rs` — module EEPROM read and decode (5.11) and a read-only PTYS query
-  (5.12; issued even without ETH_PROT_CTRL as HW-check 18's diagnostic), printed at the first link report and at
-  every link-down. No PTYS write (item 3): not offered on the blades (5.13). Then v0.2.4 and a pin request.
+  **Built in v0.2.4 (`32083cd`, 2026-10-06):** `src/diag.rs`/`src/module.rs` print the module EEPROM (5.11) and a
+  read-only PTYS query (5.12) after the link wait and at every link-down, plus a `speed control:` line; no PTYS
+  write (item 3 is not offered on the blades, 5.13). sc-build passes (subsystem 11, host tests 9 + 8). Pin asked in
+  stormbootx#104. Left: a rustnic boot at that pin; record HW-checks 17–18 in spec §7.1, then close #17.
 - [ ] #16 quiet console by default, trace behind a verbose switch.
 - [ ] #7 unlogged identify/Start error paths. #13 byte-reproducible image.
 - [ ] #5 retire `ipxe-hermon.efi` from the stormbootx media (stormbootx#27; still opt-in there,

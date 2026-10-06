@@ -5,6 +5,9 @@
 <!-- New unreleased changes go here -->
 
 ### 2026-10-06
+- **docs:** v0.2.4 verified in sc-build (subsystem 11, host tests 9 + 8); pin requested in stormbootx#104; README and work plan record the v0.2.3 pin and the #17 hardware check left (#17).
+
+### 2026-10-06
 - **feat:** DAC link diagnostics (#17, spec 5.11–5.13). After the link wait and at every link-down, each port prints its module EEPROM read through MAD_IFC attribute 0xFF60 (identifier with HCR and MAD status, cable-info errors by name, raw bytes, SFF labels: passive/active cable, length, connector, compliance, vendor, part, serial) and a read-only ACCESS_REG PTYS query (supported/advertised/operating/partner link modes; on firmware without QUERY_DEV_CAP 0x7a bit 5 it is spec 7 item 18's one-off diagnostic, not repeated once refused). A `speed control:` line says whether the card offers a forced speed; the driver never writes PTYS. QUERY_DEV_CAP logs ETH_PROT_CTRL and ETH_BACKPL_AN_REP; the link line shows autonegotiation enabled and complete. New `src/diag.rs`, `src/module.rs`, host test `test/module.rs`.
 - **test:** `test/module.rs` allows the driver-only constants (no dead-code warnings).
 - **chore:** v0.2.4.
