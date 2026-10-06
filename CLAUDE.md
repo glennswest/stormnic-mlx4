@@ -94,6 +94,9 @@ Open:
 - [ ] #17 DAC link diagnostics, now specified (#20 done 2026-10-06: spec 5.11–5.13, HW-checks 17–19). Item 1
   (module EEPROM via MAD_IFC 0xFF60, spec 5.11) can be built. Items 2–3 need PTYS, gated on QUERY_DEV_CAP 0x7a
   bit 5, which the blades' firmware 2.30.8000 leaves 0 (spec 5.13): log that, no speed setting (stormbootx#80).
+  **In progress (2026-10-06):** `src/diag.rs` — module EEPROM read and decode (5.11) and a read-only PTYS query
+  (5.12; issued even without ETH_PROT_CTRL as HW-check 18's diagnostic), printed at the first link report and at
+  every link-down. No PTYS write (item 3): not offered on the blades (5.13). Then v0.2.4 and a pin request.
 - [ ] #16 quiet console by default, trace behind a verbose switch.
 - [ ] #7 unlogged identify/Start error paths. #13 byte-reproducible image.
 - [ ] #5 retire `ipxe-hermon.efi` from the stormbootx media (stormbootx#27; still opt-in there,
