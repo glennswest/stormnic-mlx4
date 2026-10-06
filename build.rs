@@ -7,5 +7,8 @@
 fn main() {
     if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("uefi") {
         println!("cargo::rustc-link-arg=/SUBSYSTEM:EFI_BOOT_SERVICE_DRIVER");
+        // A PE timestamp derived from the image's contents, not the build
+        // time, so the same source gives the same bytes (#13).
+        println!("cargo::rustc-link-arg=/Brepro");
     }
 }

@@ -1,0 +1,4 @@
+# Reproducible image (#13): remap absolute build paths (scripts/rustc-remap.sh).
+# A RUSTC_WRAPPER in the environment takes precedence over this.
+[build]
+rustc-wrapper = "scripts/rustc-remap.sh"
