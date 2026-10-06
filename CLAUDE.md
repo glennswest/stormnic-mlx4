@@ -91,7 +91,10 @@ Open:
   rustnic boot at a pin with v0.2.3 (asked in stormbootx#66, `0e50017`). Record the result in spec §7.1.
 - [ ] #12 §7 items 15 (OS hand-off, `mlx4_core` probe after ExitBootServices) and 16 (`memory region: MPT …, L_Key …`,
   already on the server3 console).
-- [ ] #17 / #20 DAC link diagnostics beyond spec 3.5 (module EEPROM, PTYS speed masks, forced speed): spec first (#20).
+- [ ] #20 (in progress 2026-10-06) spec addition by an independent agent (not the driver author), from the BSD
+  mlx4 sources at new pinned commits: module EEPROM read, ACCESS_REG/PTYS speed masks, forced speed/autoneg,
+  new §7 HW-checks. The driver author reviews only the spec text. Then #17 (code) can start.
+- [ ] #17 DAC link diagnostics beyond spec 3.5: waits on #20.
 - [ ] #16 quiet console by default, trace behind a verbose switch.
 - [ ] #7 unlogged identify/Start error paths. #13 byte-reproducible image.
 - [ ] #5 retire `ipxe-hermon.efi` from the stormbootx media (stormbootx#27; still opt-in there,
