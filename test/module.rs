@@ -1,6 +1,7 @@
 //! `src/module.rs`: the module EEPROM and PTYS decoding of #17 (spec 5.11,
 //! 5.12). Run by `scripts/test-host.sh`.
 #[path = "../src/module.rs"]
+#[allow(dead_code)] // constants only the driver uses
 mod module;
 use module::*;
 
