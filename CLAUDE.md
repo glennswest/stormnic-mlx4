@@ -98,7 +98,12 @@ Open:
   read-only PTYS query (5.12) after the link wait and at every link-down, plus a `speed control:` line; no PTYS
   write (item 3 is not offered on the blades, 5.13). sc-build passes (subsystem 11, host tests 9 + 8). Pin asked in
   stormbootx#104. Left: a rustnic boot at that pin; record HW-checks 17–18 in spec §7.1, then close #17.
-- [ ] #16 quiet console by default, trace behind a verbose switch.
+- [ ] #16 quiet console by default, trace behind a verbose switch. **In progress (2026-10-06):** ixgbe#22's shape
+  (owner on #16): `src/console.rs` (`say!` always, `trace!` verbose or kept in a 16-line ring, `fail!` replays the
+  ring then prints), `src/trace.rs` (the ring, host test `test/trace.rs`), `verbose` feature, EFI variable
+  `StormnicVerbose` (GUID ce1479a2-eab9-4176-b0ad-c909ea5b8e0b, first byte non-zero) read once at the entry point.
+  Default: one line per port (`stormnic-mlx4 X.Y.Z: LOC 15b3:DDDD NAME: port N MAC …, link …, SNP installed`) plus
+  warnings/errors; the command trace, ICM sizes, per-frame lines and the #17 diagnostics on a good link go to trace.
 - [ ] #7 unlogged identify/Start error paths. #13 byte-reproducible image.
 - [ ] #5 retire `ipxe-hermon.efi` from the stormbootx media (stormbootx#27; still opt-in there,
   `IPXE_DRIVERS="intelx hermon"`).
