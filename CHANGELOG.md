@@ -21,6 +21,14 @@
 - **docs:** #1 recheck: server1 has still not booted the rustnic media; pass accepts 0.1.0 or 0.2.0, current golden named (work plan).
 - **docs:** #4 waits on stormbootx#50 (pin v0.2.0 on the rustnic media) for the server1 `tcp4 : available` check
 
+## [v0.2.3] — 2026-10-06
+
+### Added
+- The SNP logs the first frame from the port's own MAC that the adapter loops back (`port N rx: own frame looped back …`), so the console answers spec §7 item 14 (#21).
+
+### Documentation
+- Spec §7.1: HW-checks 1–14 recorded from the server3 and server8 rustnic boots, which also show RX and a DHCP lease through this driver (#18).
+
 ## [v0.2.2] — 2026-10-01
 
 ### Added
