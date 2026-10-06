@@ -175,7 +175,7 @@ the raw QUERY_DEV_CAP bytes 0x10–0xa7 and the ICM layout, which is what the
 spec's hardware checklist (section 7) asks for. A successful start looks like
 
 ```
-stormnic-mlx4 0.2.3: driver binding installed (15b3:1003 ConnectX-3, 15b3:1007 ConnectX-3 Pro)
+stormnic-mlx4 0.2.4: driver binding installed (15b3:1003 ConnectX-3, 15b3:1007 ConnectX-3 Pro)
 stormnic-mlx4: 0000:05:00.0 15b3:1003 ConnectX-3:
   Supported: yes
 stormnic-mlx4: 0000:05:00.0 15b3:1003 ConnectX-3:
