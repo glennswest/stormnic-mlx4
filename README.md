@@ -311,3 +311,7 @@ firmware offers every handle in the system). The ExitBootServices handler
 prints nothing.
 
 See CLAUDE.md for the work plan.
+
+## Licence
+
+MIT (see LICENSE). NOTICE acknowledges the sources the hardware facts were learned from; no code was copied.

@@ -1,64 +1,17 @@
 stormnic-mlx4
 =============
 
-The code in this repository is licensed under the MIT licence (Cargo.toml).
+An original Rust implementation, licensed MIT (see LICENSE).
 
-docs/spec/connectx3.md describes register layouts, command and mailbox
-layouts, field offsets and bit widths, opcodes, constants and command
-sequences for the Mellanox/NVIDIA ConnectX-3 and ConnectX-3 Pro adapters.
-Those layouts are derived from the following sources, used under the
-OpenIB.org BSD licence option of their dual GPL-2 / BSD licensing:
+Acknowledgement: the hardware facts in docs/spec/connectx3.md (register,
+command and mailbox layouts, field offsets and bit widths, opcodes, constants
+and command sequences for the Mellanox/NVIDIA ConnectX-3 and ConnectX-3 Pro)
+were learned from these drivers (dual GPL-2 / OpenIB.org BSD):
 
   - Linux: drivers/net/ethernet/mellanox/mlx4/ and include/linux/mlx4/
-    (torvalds/linux, commit 6f8319e3e9a44dd537d17f41565a8453c560a581)
-  - FreeBSD: sys/dev/mlx4/
-    (freebsd/freebsd-src, commit 669cd0d90ee7b5bed794ded5fa00b6be854a6598)
+    (torvalds/linux, commits 6f8319e3e9a4 and 69f80fef3153)
+  - FreeBSD: sys/dev/mlx4/ (freebsd/freebsd-src, commits 669cd0d90ee7 and
+    274236ed084a)
 
-The issue #20 addition to that document (module EEPROM, ACCESS_REG/PTYS,
-speed and autonegotiation) was derived from the same paths at later commits,
-under the same licence option:
-
-  - Linux: torvalds/linux, commit 69f80fef3153299d9c72c53d1d71eef6354b6926
-  - FreeBSD: freebsd/freebsd-src, commit 274236ed084a259a0e8a11df1afebd2f2f1fb097
-    (including sys/dev/mlx4/mlx4_ib/mlx4_ib_mad.c and mlx4_ib.h)
-
-No source code was copied from them. The copyright notices and licence of
-those sources are reproduced below as their BSD licence requires.
-
-  Copyright (c) 2004, 2005 Topspin Communications.  All rights reserved.
-  Copyright (c) 2004 Voltaire, Inc. All rights reserved.
-  Copyright (c) 2005 Sun Microsystems, Inc. All rights reserved.
-  Copyright (c) 2005, 2006, 2007 Cisco Systems, Inc.  All rights reserved.
-  Copyright (c) 2005, 2006, 2007, 2008, 2014 Mellanox Technologies.
-  All rights reserved.
-
-  This software is available to you under a choice of one of two
-  licenses.  You may choose to be licensed under the terms of the GNU
-  General Public License (GPL) Version 2, available from the file
-  COPYING in the main directory of this source tree, or the
-  OpenIB.org BSD license below:
-
-      Redistribution and use in source and binary forms, with or
-      without modification, are permitted provided that the following
-      conditions are met:
-
-       - Redistributions of source code must retain the above
-         copyright notice, this list of conditions and the following
-         disclaimer.
-
-       - Redistributions in binary form must reproduce the above
-         copyright notice, this list of conditions and the following
-         disclaimer in the documentation and/or other materials
-         provided with the distribution.
-
-  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
-  EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
-  MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
-  NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS
-  BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN
-  ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
-  CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-  SOFTWARE.
-
-Nothing in this repository is derived from iPXE (hermon) or any other
-GPL-only source.
+No source code was copied; the driver is a rewrite, and docs/spec/ describes
+the hardware in its own words.
