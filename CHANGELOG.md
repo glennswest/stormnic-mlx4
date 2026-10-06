@@ -7,6 +7,7 @@
 ### 2026-10-06
 - **feat:** Quiet console by default (#16), the same switch as stormnic-ixgbe#22: one line per port on a good Start (`stormnic-mlx4 X.Y.Z: LOC 15b3:DDDD NAME port N: MAC …, link up SPEED|no link, SNP installed`) plus every warning and error. The command trace, ICM sizes, QUERY_DEV_CAP bytes, SNP calls, per-frame lines and the #17 diagnostics on a linked port are printed only when verbose: the EFI variable `StormnicVerbose` (vendor GUID ce1479a2-eab9-4176-b0ad-c909ea5b8e0b, first byte non-zero, read once at the entry point) or the `verbose` build feature. When quiet, the last 16 trace lines are kept and replayed ahead of any failure. A port without link still prints its QUERY_PORT and link-diagnostic lines. Diagnostic commands (MAD_IFC, ACCESS_REG) report their own status instead of a failure replay. New `src/console.rs`, `src/trace.rs`, host test `test/trace.rs`.
 - **docs:** README "Console output" (what is always printed, the verbose switch, the replay); CLAUDE.md logging rule and interfaces (#16).
+- **chore:** v0.2.5.
 
 ### 2026-10-06
 - **docs:** v0.2.4 verified in sc-build (subsystem 11, host tests 9 + 8); pin requested in stormbootx#104; README and work plan record the v0.2.3 pin and the #17 hardware check left (#17).
@@ -38,6 +39,11 @@
 - **docs:** #2 pass restated for v0.2.0 (`INIT_HCA (0x0): ok`, `firmware bring-up complete`, `port N SNP: initialized`); stale stormbootx#45 reference fixed (work plan).
 - **docs:** #1 recheck: server1 has still not booted the rustnic media; pass accepts 0.1.0 or 0.2.0, current golden named (work plan).
 - **docs:** #4 waits on stormbootx#50 (pin v0.2.0 on the rustnic media) for the server1 `tcp4 : available` check
+
+## [v0.2.5] — 2026-10-06
+
+### Added
+- Quiet console by default (#16): one line per port plus warnings and errors. The bring-up trace is printed only with the EFI variable `StormnicVerbose` (GUID ce1479a2-eab9-4176-b0ad-c909ea5b8e0b, shared with stormnic-ixgbe) or `--features verbose`; otherwise the last 16 trace lines are replayed ahead of a failure. Host test `test/trace.rs`.
 
 ## [v0.2.4] — 2026-10-06
 
