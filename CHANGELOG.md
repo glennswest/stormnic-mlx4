@@ -5,7 +5,7 @@
 <!-- New unreleased changes go here -->
 
 ### 2026-10-06
-- **docs:** Spec §7.1 records HW-checks 15 and 16 from all 34 rustnic SOL captures (server1, 3, 4, 7, 8; firmware 2.30.8000). 16: 256 reserved MPTs give MPT 0x100 and L_Key 0x00010000, so there is no collision with 0x100. 15: not observable yet. Every attached boot reaches `STARTING KERNEL`, but the started image's kernel console is ttyS0 and the X9 SOL is ttyS1 (stormcos#220), so the OS-side `mlx4_core` probe is not captured (#12).
+- **docs:** Spec §7.1 records HW-checks 15 and 16 from all 34 rustnic SOL captures (server1, 3, 4, 7, 8; firmware 2.30.8000). 16: 256 reserved MPTs give MPT 0x100 and L_Key 0x00010000, so there is no collision with 0x100. 15: not observable yet. Every attached boot reaches `STARTING KERNEL`, but the started image's kernel console is ttyS0 and the X9 SOL is ttyS1 (stormcos#220), so the OS-side `mlx4_core` probe is not captured (#12). README status updated.
 
 ### 2026-10-06
 - **docs:** v0.2.5 verified in sc-build (both images, host tests 9 + 8 + 3); stormbootx#104 now asks for v0.2.5; work plan and README pin text (#16, #17).

@@ -139,7 +139,8 @@ ConnectX-3 reached link at 10G. From 2026-10-02, rustnic boots of server3 and
 server8 at v0.2.1 receive through this driver. They get a DHCP lease, and on
 server3 also claim and attach the boot image over it. Spec section 7.1 records
 hardware checks 1–13 from those boots (#18). Item 14 waits for a boot at v0.2.3
-(#21), items 15–16 are #12, and items 17–18 (module EEPROM, PTYS) wait for a boot
+(#21), item 16 is recorded (no L_Key collision), item 15 waits for the booted
+kernel to reach the X9 SOL (#12, stormcos#220), and items 17–18 (module EEPROM, PTYS) wait for a boot
 at v0.2.4 (#17).
 The image is an EFI boot-service driver (`build.rs` sets the PE subsystem;
 `scripts/pe-subsystem.sh IMAGE` checks it is 11). Its entry point installs
