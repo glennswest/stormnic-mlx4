@@ -44,8 +44,8 @@ the target dir.
 No standalone component golden. The owner approved shipping inside stormbootx's
 `nic-drivers` build from a pinned `STORMNIC_MLX4_REF` (#8). stormbootx#34 did
 the mlx4 integration: `scripts/build-nic-drivers.sh` builds this crate at the
-pin, and the `stormbootx-rustnic` media (`STORMNIC_ON_MEDIA="ixgbe mlx4"`)
-carries it with no iPXE. The pin was `cf37f8b` (v0.2.1) as of 2026-10-04;
+pin, and the `stormbootx-rustnic` media (`STORMNIC_DRIVERS`, default `ixgbe mlx4`)
+carries it. stormbootx ships no iPXE on any medium (stormbootx#91). The pin was `cf37f8b` (v0.2.1) as of 2026-10-04;
 stormbootx#66 pinned v0.2.3 (`0e50017`); stormbootx#104 asks for v0.2.5 (`04e7d2c`; first asked for v0.2.4). `--drivers DIR` is the manual media assembly
 interface, not a way to retain an sc-build artifact. sc-build keeps no image.
 The media/golden work belongs to stormbootx; do not create a persistent build
@@ -58,9 +58,8 @@ variable `StormnicVerbose` (#16; README, "Interfaces and configuration").
 
 Host tests: `sc-build 'scripts/test-host.sh'` (`test/bars.rs`).
 
-Hardware: put the built `.efi` in a stormbootx ISO's `\stormboot\drivers`,
-**without** `ipxe-hermon.efi` (`scripts/build-boot-agent.sh --iso --drivers DIR`
-in stormbootx), or use the rustnic golden at the current pin. Boot a blade from
+Hardware: put the built `.efi` in a stormbootx ISO's `\stormboot\drivers`
+(`scripts/build-boot-agent.sh --iso --drivers DIR` in stormbootx), or use the rustnic golden at the current pin. Boot a blade from
 the virtual CD, which the stormcentral minismbd serves as `\boot\stormbootx.iso`.
 **The blade boot is the master's job, not an owner decision** (master on #1,
 2026-09-30): ask the master on the issue, never with `needs-owner`;
@@ -81,6 +80,8 @@ Done (history in git and CHANGELOG.md):
   binding, every command through INIT_HCA, SET_PORT/INIT_PORT, steering, SNP installed, TX of a DHCP discover;
   and server1 link-ok at 10G (DAC on the CRS326 sfp-sfpplus1, fixed 10G). RX and a lease were not seen (#18).
 - [x] #9 `Cargo.lock` committed, builds `--locked`.
+- [x] #5 `ipxe-hermon.efi` retired: stormbootx#91 (closed 2026-10-06) removed iPXE from every medium. The condition (a
+  ConnectX-3 boothost claim with this driver alone) was met by server3's rustnic boots (§7.1).
 - [x] #10 `docs/spec/connectx3.md` (the only source; BSD notice in `NOTICE`). #20 added 5.11–5.13 (EEPROM, PTYS, speed).
 - [x] #18 RX, a DHCP lease and an NVMe/TCP claim through the ConnectX-3 (server3 and server8 rustnic boots, v0.2.1,
   2026-10-02..05). Spec §7.1 records HW-checks 1–13; item 14 split to #21 (v0.2.3).
@@ -108,5 +109,3 @@ Open:
   `verbose` feature, `StormnicVerbose` (GUID ce1479a2-…-c909ea5b8e0b). sc-build passes (both images, host tests
   9 + 8 + 3). Pin asked in stormbootx#104. Left: a rustnic boot at that pin showing the one line per port.
 - [ ] #7 unlogged identify/Start error paths. #13 byte-reproducible image.
-- [ ] #5 retire `ipxe-hermon.efi` from the stormbootx media (stormbootx#27; still opt-in there,
-  `IPXE_DRIVERS="intelx hermon"`).

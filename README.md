@@ -20,11 +20,10 @@ provides the SNP on each Ethernet port; a firmware MNP/IP4/TCP4 stack can bind
 on top of it as well. There is no PXE, no DHCP boot and no network code of its
 own above the link layer.
 
-The interim driver was iPXE's `ipxe-hermon.efi` (GPL-2 C, built from pinned
-source by stormbootx's `scripts/build-nic-drivers.sh`). It hangs server1's boot,
-so stormbootx builds it only on request (`IPXE_DRIVERS="intelx hermon"`), and
-the rustnic media carries no iPXE at all. This crate replaces it (stormbootx#27,
-#5).
+The interim driver was iPXE's `ipxe-hermon.efi` (GPL-2 C), which hung server1's
+boot. This crate replaced it (stormbootx#27, #5). stormbootx has carried no iPXE
+on any medium since stormbootx#91 (owner on stormbootx#81, 2026-10-02), so this
+driver is the only ConnectX-3 driver stormbootx ships.
 
 ## Hardware
 
@@ -117,8 +116,9 @@ Run it on dev through `sc-build 'scripts/test-host.sh'`.
 The output is `stormnic-mlx4.efi`. The approved shipping path (#8) is inside
 stormbootx's `nic-drivers` build, from a pinned `STORMNIC_MLX4_REF` in
 stormbootx's `scripts/build-nic-drivers.sh` (stormbootx#34). The
-`stormbootx-rustnic` media (`STORMNIC_ON_MEDIA="ixgbe mlx4"`) carries it with
-no iPXE; the normal stormbootx media does not carry it. This repository has no
+`stormbootx-rustnic` medium (`STORMNIC_DRIVERS`, default `ixgbe mlx4`) carries
+it, with no iPXE. The stormbootx (fw) medium, for machines whose firmware has its
+own NIC driver, carries no drivers at all (stormbootx#52, #91). This repository has no
 standalone component golden, and sc-build retains no artifacts.
 
 The pin is `0e50017` (v0.2.3: the link and module lines, and the own-frame line
