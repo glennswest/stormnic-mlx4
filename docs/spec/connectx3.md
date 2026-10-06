@@ -2436,8 +2436,13 @@ unicast to the port MAC (ARP replies, TCP), received through MCG entries.
 | 13 | **1.7–2.1 s** from INIT_PORT and steering setup to link up, measured with a 100 ms poll. server3 took 2000 ms on 11 boots and 2100 ms on one; server8 took 1700–2100 ms. The 5 s link wait (`LINK_WAIT_MS`) leaves enough room. Boots with no link at all (#15, the DAC fixes) are not counted. | `link up on every Ethernet port after 2000 ms` |
 | 14 | **Not observable at v0.2.1.** LB_SRC_CHK is 1 and counters are on, so the RX QP sets the loopback source check (5.10). But the SNP drops frames whose source is the port's own MAC before it logs anything, so the console cannot show whether the adapter loops them back. v0.2.3 logs the first such frame; the answer comes from the next boot at that pin (#21). | `SW_CQ_INIT 0, LB_SRC_CHK 1`; no `rx:` line from the port's own MAC |
 
-Items 15 and 16 are tracked in #12. For 16, the console already shows `memory region: MPT 0x100,
-L_Key 0x00010000` with 256 reserved MPTs, so the L_Key does not collide with the padding L_Key 0x100.
+Items 15 and 16 (#12), recorded 2026-10-06 from every stormcentral SOL capture of a rustnic boot: 34 boots of
+stormnic-mlx4 0.2.0/0.2.1 on **server1, 3, 4, 7 and 8**, all ConnectX-3 15b3:1003, firmware 2.30.8000.
+
+| # | Result | Evidence (console) |
+|---|---|---|
+| 15 | **Not observable yet.** Every boot that attached its image went on to `STARTING KERNEL - the machine is Linux's from here`, so ExitBootServices ran with this driver bound (its handler prints nothing, 6.4). But no capture has a line from the booted kernel. On the X9 blades the SOL is COM2 (ttyS1, I/O 0x2f8), and the started image's command line has only `console=tty0 console=ttyS0,115200n8`. The next lines in each capture are the firmware banner of the next boot. So neither the `mlx4_core` probe nor a firmware-command timeout after the hand-off can be seen. Earlier Fedora boots on the same blades (`console=ttyS1`, `earlycon=uart8250,io,0x2f8`) show their `mlx4_core` probe on the SOL, so a booted image with a ttyS1 console answers this. That console is stormcos#220. | `STARTING KERNEL …` followed directly by `Version 2.15.1236 … American Megatrends`; image cmdline `console=tty0 console=ttyS0,115200n8 root=/dev/ublkb0 …` |
+| 16 | **No collision.** The firmware reserves 256 MPTs on every boot, so the region is MPT 0x100 and its L_Key is 0x00010000, never the padding key 0x100. The skip to index 2 (for exactly one reserved MPT, 4.3) is not reached on these cards. | `reserved: … MTTs …, MPTs 256, …` and `memory region: MPT 0x100, L_Key 0x00010000` on all 34 boots |
 
 ---
 

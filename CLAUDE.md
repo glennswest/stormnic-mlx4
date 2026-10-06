@@ -91,8 +91,10 @@ Open:
 
 - [ ] #21 §7 item 14 (own-frame loopback): v0.2.3 logs the first looped-back own frame; answered by the first
   rustnic boot at a pin with v0.2.3 (asked in stormbootx#66, `0e50017`). Record the result in spec §7.1.
-- [ ] #12 §7 items 15 (OS hand-off, `mlx4_core` probe after ExitBootServices) and 16 (`memory region: MPT …, L_Key …`,
-  already on the server3 console).
+- [ ] #12 §7 items 15 and 16, recorded in spec §7.1 (2026-10-06, 34 SOL captures, server1/3/4/7/8). **16 done**: 256
+  reserved MPTs → MPT 0x100, L_Key 0x00010000, no collision. **15 blocked on stormcos#220**: all 32 attached boots
+  reach `STARTING KERNEL`, but the image's kernel writes to ttyS0 and the X9 SOL is ttyS1, so no `mlx4_core` probe
+  is visible. Proposed `--after stormcos#220`; once a boot shows the OS side, record it in §7.1 and close #12.
 - [ ] #17 DAC link diagnostics, now specified (#20 done 2026-10-06: spec 5.11–5.13, HW-checks 17–19). Item 1
   (module EEPROM via MAD_IFC 0xFF60, spec 5.11) can be built. Items 2–3 need PTYS, gated on QUERY_DEV_CAP 0x7a
   bit 5, which the blades' firmware 2.30.8000 leaves 0 (spec 5.13): log that, no speed setting (stormbootx#80).
