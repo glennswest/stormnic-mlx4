@@ -5,6 +5,9 @@
 <!-- New unreleased changes go here -->
 
 ### 2026-10-06
+- **docs:** Work plan for #21: no blade has booted a stormbootx with stormnic-mlx4 ≥ v0.2.3 yet. stormbootx v0.18.0/v0.19.0 pin it, but the served signed rustnic golden is v0.14.0 (v0.2.1, stormbootx#92), so item 14 waits on that boot (#21).
+
+### 2026-10-06
 - **docs:** #5 done. `ipxe-hermon.efi` is retired: stormbootx#91 removed iPXE from every medium. server3's rustnic boots, with no iPXE, claimed `boothost/server3` and attached their image through the ConnectX-3 alone. README and CLAUDE.md drop the `IPXE_DRIVERS="intelx hermon"` opt-in, and name stormbootx's `STORMNIC_DRIVERS` (not `STORMNIC_ON_MEDIA`) and the driverless fw medium (#5).
 - **docs:** licensed MIT (LICENSE added); NOTICE is now an acknowledgement of where the hardware facts were learned (an original Rust rewrite, no code copied) — owner, repo made public
 - **docs:** Spec §7.1 records HW-checks 15 and 16 from all 34 rustnic SOL captures (server1, 3, 4, 7, 8; firmware 2.30.8000). 16: 256 reserved MPTs give MPT 0x100 and L_Key 0x00010000, so there is no collision with 0x100. 15: not observable yet. Every attached boot reaches `STARTING KERNEL`, but the started image's kernel console is ttyS0 and the X9 SOL is ttyS1 (stormcos#220), so the OS-side `mlx4_core` probe is not captured (#12). README status updated.

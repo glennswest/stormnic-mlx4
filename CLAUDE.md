@@ -91,7 +91,10 @@ Done (history in git and CHANGELOG.md):
 Open:
 
 - [ ] #21 §7 item 14 (own-frame loopback): v0.2.3 logs the first looped-back own frame; answered by the first
-  rustnic boot at a pin with v0.2.3 (asked in stormbootx#66, `0e50017`). Record the result in spec §7.1.
+  rustnic boot at a pin with v0.2.3. Checked 2026-10-06: stormbootx v0.18.0/v0.19.0 (`649dd07`, golden
+  `golden-stormbootx-rustnic-61df2f5eed14f7ba`) pin `0e50017`, but the served signed golden is still v0.14.0 (pin
+  `cf37f8b`, v0.2.1), and server3's 22:43Z boot ran 0.12.0 with v0.2.1. Waits on an X9 boot ≥ v0.18.0 (master;
+  promotion is stormbootx#92). Then record §7.1 item 14 and close. Quiet console (v0.2.5) still prints that line.
 - [ ] #12 §7 items 15 and 16, recorded in spec §7.1 (2026-10-06, 34 SOL captures, server1/3/4/7/8). **16 done**: 256
   reserved MPTs → MPT 0x100, L_Key 0x00010000, no collision. **15 blocked on stormcos#220**: all 32 attached boots
   reach `STARTING KERNEL`, but the image's kernel writes to ttyS0 and the X9 SOL is ttyS1, so no `mlx4_core` probe
