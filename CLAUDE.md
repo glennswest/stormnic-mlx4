@@ -79,7 +79,7 @@ Done (history in git and CHANGELOG.md):
   binding, every command through INIT_HCA, SET_PORT/INIT_PORT, steering, SNP installed, TX of a DHCP discover;
   and server1 link-ok at 10G (DAC on the CRS326 sfp-sfpplus1, fixed 10G). RX and a lease were not seen (#18).
 - [x] #9 `Cargo.lock` committed, builds `--locked`.
-- [x] #10 `docs/spec/connectx3.md` (the only source; BSD notice in `NOTICE`).
+- [x] #10 `docs/spec/connectx3.md` (the only source; BSD notice in `NOTICE`). #20 added 5.11–5.13 (EEPROM, PTYS, speed).
 - [x] #18 RX, a DHCP lease and an NVMe/TCP claim through the ConnectX-3 (server3 and server8 rustnic boots, v0.2.1,
   2026-10-02..05). Spec §7.1 records HW-checks 1–13; item 14 split to #21 (v0.2.3).
 - [x] #15 UAR `BarIndex` from `GetBarAttributes` (v0.2.1), VPI ports forced to Ethernet, link/module
@@ -91,10 +91,9 @@ Open:
   rustnic boot at a pin with v0.2.3 (asked in stormbootx#66, `0e50017`). Record the result in spec §7.1.
 - [ ] #12 §7 items 15 (OS hand-off, `mlx4_core` probe after ExitBootServices) and 16 (`memory region: MPT …, L_Key …`,
   already on the server3 console).
-- [ ] #20 (in progress 2026-10-06) spec addition by an independent agent (not the driver author), from the BSD
-  mlx4 sources at new pinned commits: module EEPROM read, ACCESS_REG/PTYS speed masks, forced speed/autoneg,
-  new §7 HW-checks. The driver author reviews only the spec text. Then #17 (code) can start.
-- [ ] #17 DAC link diagnostics beyond spec 3.5: waits on #20.
+- [ ] #17 DAC link diagnostics, now specified (#20 done 2026-10-06: spec 5.11–5.13, HW-checks 17–19). Item 1
+  (module EEPROM via MAD_IFC 0xFF60, spec 5.11) can be built. Items 2–3 need PTYS, gated on QUERY_DEV_CAP 0x7a
+  bit 5, which the blades' firmware 2.30.8000 leaves 0 (spec 5.13): log that, no speed setting (stormbootx#80).
 - [ ] #16 quiet console by default, trace behind a verbose switch.
 - [ ] #7 unlogged identify/Start error paths. #13 byte-reproducible image.
 - [ ] #5 retire `ipxe-hermon.efi` from the stormbootx media (stormbootx#27; still opt-in there,
