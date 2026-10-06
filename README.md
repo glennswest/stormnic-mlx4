@@ -68,7 +68,7 @@ and note it in the changelog.
   copies the frame, and `GetStatus` hands the caller's buffer back once the
   device has sent it. `Initialize` enables unicast and broadcast. `Statistics`,
   `StationAddress` and `NvData` return `UNSUPPORTED`. Frames the adapter loops
-  back from the port's own MAC are dropped.
+  back from the port's own MAC are dropped; the first is logged (spec 7 item 14).
 - **Consumes:** `EFI_PCI_IO_PROTOCOL` on the controller, opened `BY_DRIVER`
   while started and `BY_CHILD_CONTROLLER` by each child (a minimal binding in
   `src/pci.rs`: config-space reads/writes, BAR memory reads/writes,
@@ -202,7 +202,9 @@ stormnic-mlx4: port 1 tx: 342 bytes ff:ff:ff:ff:ff:ff <- f4:52:14:84:b7:e0 type 
 stormnic-mlx4: port 1 rx: 342 bytes ff:ff:ff:ff:ff:ff <- ... type 0800
 ```
 
-The first 16 frames each way per port are logged, one line each. A failed
+The first 16 frames each way per port are logged, one line each. If the
+adapter loops back a frame from the port's own MAC, the first one is logged
+(`port N rx: own frame looped back (... bytes to ...), dropped (5.10)`). A failed
 step prints the command with its status (`status 0x03, bad parameter`), a
 timeout also prints the catastrophic error buffer, and `Start` ends with
 `Start: firmware bring-up failed, releasing the NIC` or `Start: data path

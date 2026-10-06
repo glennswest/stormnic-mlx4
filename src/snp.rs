@@ -54,6 +54,8 @@ pub struct Child {
     path: Vec<u8>,
     rx_logged: u32,
     tx_logged: u32,
+    /// An own frame looped back has been logged (spec 7 item 14, #21).
+    own_logged: bool,
     status_calls: u32,
 }
 
@@ -157,6 +159,7 @@ impl Child {
             path: child_path(parent, mac),
             rx_logged: 0,
             tx_logged: 0,
+            own_logged: false,
             status_calls: 0,
         });
         c.snp.mode = &raw mut c.mode;
@@ -271,10 +274,19 @@ impl Child {
 
     /// Should a frame to `dst` from `src` reach the caller? Own frames looped
     /// back by the adapter never do (5.10).
-    fn wanted(&mut self, dst: [u8; 6], src: [u8; 6]) -> bool {
+    fn wanted(&mut self, dst: [u8; 6], src: [u8; 6], len: usize) -> bool {
         let mac = self.port().mac();
         let on = |f: ReceiveFlags| self.mode.receive_filter_setting & f.bits() != 0;
         if src == mac {
+            // Spec 7 item 14: the RX QP's loopback source check should keep
+            // these out; say so once if one gets through.
+            if !core::mem::replace(&mut self.own_logged, true) {
+                uefi::println!(
+                    "stormnic-mlx4: port {} rx: own frame looped back ({len} bytes to {}), dropped (5.10); no more logged",
+                    self.num(),
+                    Mac(dst)
+                );
+            }
             false
         } else if dst == mac {
             on(ReceiveFlags::UNICAST)
@@ -594,7 +606,7 @@ unsafe extern "efiapi" fn receive(
         }
         mem.read(0, &mut h);
         let (d, s): ([u8; 6], [u8; 6]) = (h[0..6].try_into().unwrap(), h[6..12].try_into().unwrap());
-        if !c.wanted(d, s) {
+        if !c.wanted(d, s, len) {
             c.port().pop_rx();
             continue;
         }
