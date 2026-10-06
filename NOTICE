@@ -14,6 +14,14 @@ OpenIB.org BSD licence option of their dual GPL-2 / BSD licensing:
   - FreeBSD: sys/dev/mlx4/
     (freebsd/freebsd-src, commit 669cd0d90ee7b5bed794ded5fa00b6be854a6598)
 
+The issue #20 addition to that document (module EEPROM, ACCESS_REG/PTYS,
+speed and autonegotiation) was derived from the same paths at later commits,
+under the same licence option:
+
+  - Linux: torvalds/linux, commit 69f80fef3153299d9c72c53d1d71eef6354b6926
+  - FreeBSD: freebsd/freebsd-src, commit 274236ed084a259a0e8a11df1afebd2f2f1fb097
+    (including sys/dev/mlx4/mlx4_ib/mlx4_ib_mad.c and mlx4_ib.h)
+
 No source code was copied from them. The copyright notices and licence of
 those sources are reproduced below as their BSD licence requires.
 

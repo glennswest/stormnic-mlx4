@@ -4,6 +4,11 @@ Status: first edition, 2026-09-29 (issue #10). Written by an agent that does not
 write the driver. The driver (#2, #3, #4) is implemented from this document; its
 author should not need to read any other driver.
 
+Addition 2026-10-06 (issue #20), by an independent agent that does not write
+the driver: module EEPROM read through MAD_IFC (5.11), ACCESS_REG and the PTYS
+register (5.12), forced speed and autonegotiation (5.13), HW-checks 17–19,
+and the matching rows in 2.9, 3.4, 3.5 and Appendices A, C and F.
+
 ## 0. About this document
 
 ### 0.1 Scope
@@ -23,9 +28,13 @@ sending and receiving frames and back to a quiescent device. It covers:
 4. The Ethernet data path: port configuration (SET_PORT, INIT_PORT), receive
    steering, send and receive work queue entries, completion queue entries,
    doorbells, link state, MAC address, MTU (section 5).
-5. A step-by-step minimal polling driver and its shutdown on
+5. Port diagnostics and link control (5.11–5.13, addition for #20): reading
+   the SFP/QSFP module EEPROM with MAD_IFC, reading and writing the PTYS
+   (port type and speed) register with ACCESS_REG, and what the sources show
+   about forcing a speed or turning autonegotiation off.
+6. A step-by-step minimal polling driver and its shutdown on
    ExitBootServices (section 6).
-6. Items that must be confirmed on hardware (section 7), and appendices of
+7. Items that must be confirmed on hardware (section 7), and appendices of
    constants, opcodes and a glossary.
 
 Out of scope: InfiniBand, RDMA, SR-IOV/virtual functions (15b3:1004), the
@@ -48,6 +57,23 @@ Baselines read:
 |---|---|---|
 | Linux (torvalds/linux) | `6f8319e3e9a44dd537d17f41565a8453c560a581` (2026-09-28) | `drivers/net/ethernet/mellanox/mlx4/`, `include/linux/mlx4/` |
 | FreeBSD (freebsd/freebsd-src) | `669cd0d90ee7b5bed794ded5fa00b6be854a6598` (2026-09-29) | `sys/dev/mlx4/` |
+
+Addition for issue #20 (5.11–5.13 and the rows added for them elsewhere), read
+at these later commits under the same licence rule (each file's header checked
+for the OpenIB.org BSD option before use):
+
+| Tree | Commit | Files read |
+|---|---|---|
+| Linux (torvalds/linux) | `69f80fef3153299d9c72c53d1d71eef6354b6926` (2026-10-06) | `drivers/net/ethernet/mellanox/mlx4/`: `port.c`, `fw.c`, `fw.h`, `mlx4.h`, `en_ethtool.c`, `en_port.c`, `en_port.h`, `en_netdev.c`, `mlx4_en.h`, `main.c`, `cmd.c`; `include/linux/mlx4/device.h`, `cmd.h` |
+| FreeBSD (freebsd/freebsd-src) | `274236ed084a259a0e8a11df1afebd2f2f1fb097` (2026-10-06) | `sys/dev/mlx4/`: `mlx4_core/mlx4_port.c`, `mlx4_core/mlx4_fw.c`, `mlx4_core/fw.h`, `mlx4_core/mlx4.h`, `mlx4_en/mlx4_en_netdev.c`, `mlx4_en/mlx4_en_port.c`, `mlx4_en/en.h`, `mlx4_en/en_port.h`, `mlx4_ib/mlx4_ib_mad.c`, `mlx4_ib/mlx4_ib.h`, `device.h`, `cmd.h` |
+
+Linux `en_ethtool.c` has no FreeBSD counterpart file: FreeBSD carries the
+module EEPROM readers in `mlx4_en/mlx4_en_netdev.c` and has no PTYS user. The
+MAD_IFC opcode-modifier bits (5.11) are named in FreeBSD
+`mlx4_ib/mlx4_ib_mad.c` (`mlx4_MAD_IFC`) and `mlx4_ib/mlx4_ib.h`, under the
+same dual licence. The byte meanings of the module EEPROM itself (5.11.4) are
+**not** from the mlx4 sources; they are from the public SFF module standards
+named there.
 
 Each section ends with a **Sources** line naming the Linux file and function(s)
 a reviewer should compare against. FreeBSD carries the same functions under a
@@ -319,8 +345,9 @@ when T reads 0, and avoids a spurious "pending" if some earlier user left T at
 - Input mailbox: driver fills it, passes its physical address as in_param.
 - Output mailbox: driver passes its physical address as out_param; firmware
   fills it. Read it only after the command completes.
-- A command may use both (none in this document do, except that QP/MCG
-  commands use one input mailbox and READ_MCG uses one output mailbox).
+- A command may use both. MAD_IFC (5.11) and ACCESS_REG (5.12) do: one
+  input and one separate output mailbox. Otherwise QP/MCG commands use one
+  input mailbox and READ_MCG uses one output mailbox.
 - The device reads/writes the mailbox by DMA, so the buffer must remain mapped
   until the command completes.
 
@@ -425,6 +452,8 @@ Sources: `cmd.c` — `mlx4_closing_cmd_fatal_error`; `catas.c` — `poll_catas`,
 | UNMAP_ICM_AUX | 0xffb | 0 | 0 | 0 | — | 3.13 |
 | UNMAP_FA | 0xffe | 0 | 0 | 0 | — | 3.13 |
 | NOP | 0x031 | 0 | 0 | 0x1f | — | optional liveness check |
+| MAD_IFC (module info) | 0x024 | 3 | in MB (256-byte MAD) | port | out MB (256-byte MAD) | 5.11 |
+| ACCESS_REG | 0x03b | 0 | in MB (20-byte header + register) | 0 | out MB (same layout) | 5.12 |
 
 The full opcode list is in Appendix A.
 
@@ -556,6 +585,7 @@ Output mailbox. Fields a minimal Ethernet driver needs ("log" = log2; "count"
 | 0x68 | be32 | 31:0 | max counters (valid if flag COUNTERS) | count |
 | 0x70 | be32 | see below | extended flags 2 | — |
 | 0x76 | u8 | 7 | device-managed flow steering supported (unused here) | — |
+| 0x7a | u8 | 5 | **ETH_PROT_CTRL**: Ethernet protocol control, i.e. the PTYS register may be used (5.12, 5.13). Same byte: bit 4 QoS VPP, bit 6 CQE stride, bit 7 EQE stride (unused here) | 1 = offered |
 | 0x80 | be16 | | RDMARC entry size (bytes) | — |
 | 0x82 | be16 | | QPC entry size | — |
 | 0x84 | be16 | | AUXC entry size | — |
@@ -568,6 +598,7 @@ Output mailbox. Fields a minimal Ethernet driver needs ("log" = log2; "count"
 | 0x92 | be16 | | dMPT entry size | — |
 | 0x94 | be32 | | BMME flags: bit 9 type-2 memory windows, bit 19 RoCE v1/v2, bit 24 **PORT_REMAP** | — |
 | 0x98 | be32 | | reserved L_Key (unused) | — |
+| 0x9c | be32 | 0 | **ETH_BACKPL_AN_REP**: Ethernet backplane autonegotiation reporting; Linux reports "Autoneg" as supported/advertised only when this is set and QUERY_PORT says autoneg enabled (5.13). Bits 7 and 8 of the same dword: recoverable-error events, driver version to firmware (unused here) | 1 = offered |
 | 0xa0 | be64 | | **max ICM size** in bytes | profile total must not exceed it |
 
 Device capability flags (64-bit value at 0x40; bit numbers of that value):
@@ -598,7 +629,11 @@ page cannot be used).
 
 Linux then issues QUERY_PORT for each port (3.5).
 
-Sources: `fw.c` — `mlx4_QUERY_DEV_CAP`; `main.c` — `mlx4_dev_cap`; `include/linux/mlx4/device.h` — `MLX4_DEV_CAP_FLAG_*`, `MLX4_BMME_FLAG_*`.
+Linux turns 0x7a bit 5 and 0x9c bit 0 into its software flags2 bits 14
+(ETH_PROT_CTRL) and 15 (ETH_BACKPL_AN_REP); those numbers are Linux's own and
+are not positions in the mailbox.
+
+Sources: `fw.c` — `mlx4_QUERY_DEV_CAP` (`QUERY_DEV_CAP_CQ_EQ_CACHE_LINE_STRIDE` = 0x7a, `QUERY_DEV_CAP_ETH_BACKPL_OFFSET` = 0x9c), `dump_dev_cap_flags2`; `main.c` — `mlx4_dev_cap`; `include/linux/mlx4/device.h` — `MLX4_DEV_CAP_FLAG_*`, `MLX4_DEV_CAP_FLAG2_ETH_PROT_CTRL`, `MLX4_DEV_CAP_FLAG2_ETH_BACKPL_AN_REP`, `MLX4_BMME_FLAG_*`.
 
 ### 3.5 QUERY_PORT
 
@@ -608,11 +643,12 @@ revision 3):
 | Offset | Width | Bits | Meaning |
 |---|---|---|---|
 | 0x00 | u8 | 7 | **link up** |
+| | | 6 | autonegotiation complete ("ANC"; addition #20, 5.13) |
 | | | 5 | DMFS optimized state (unused) |
 | | | 4 | default sense (auto-detect port type at start) |
 | | | 3 | suggested port type: 1 = Ethernet, 0 = InfiniBand |
 | | | 1:0 | supported port types: bit 0 = IB, bit 1 = Ethernet |
-| 0x01 | u8 | 7 | autonegotiation (as reported to ethtool) |
+| 0x01 | u8 | 7 | autonegotiation enabled ("ANE"; as reported to ethtool, 5.13) |
 | | | 3:0 | IB MTU capability (unused) |
 | 0x02 | be16 | | **Ethernet MTU capability** (Linux uses it as the port's maximum MTU) |
 | 0x05 | u8 | | link speed code (mask 0x6f): 0x00 10G XAUI, 0x01 10G XFI, 0x02 1G, 0x04 100M, 0x08 20G, 0x40 40G, 0x20 56G, 0x0f other |
@@ -630,13 +666,19 @@ The MAC is the low 48 bits of the be64: the most significant of those 48 bits
 is the first byte on the wire (the 6 bytes 0x12..0x17 are the MAC in
 transmission order).
 
+The transceiver type byte (0x18) is the only module information Linux takes
+from QUERY_PORT. When PTYS is not available (5.12) Linux classifies the port
+from it: 0x01–0x0c = fibre, 0x00 or 0x80 = twisted pair, anything else =
+unknown. The sources give no other meaning for the values; the module's own
+EEPROM (5.11) is the authoritative description of the cable.
+
 With command interface revision 2 ("old port commands"), QUERY_PORT is not
 used; the IB-style port fields come from QUERY_DEV_CAP instead. A driver MAY
 refuse revision 2.
 
 QUERY_PORT is also the way to poll link state (5.8).
 
-Sources: `fw.c` — `mlx4_QUERY_PORT`; `en_port.c` — `mlx4_en_QUERY_PORT`; `en_port.h` — `mlx4_en_query_port_context`, speed codes; `main.c` — `_mlx4_dev_port`; `en_netdev.c` — `mlx4_en_u64_to_mac` usage.
+Sources: `fw.c` — `mlx4_QUERY_PORT`; `en_port.c` — `mlx4_en_QUERY_PORT`; `en_port.h` — `mlx4_en_query_port_context`, `MLX4_EN_LINK_UP_MASK`, `MLX4_EN_ANC_MASK`, `MLX4_EN_AUTONEG_MASK`, speed codes; `mlx4_en.h` — `MLX4_EN_PORT_ANC`, `MLX4_EN_PORT_ANE`; `en_ethtool.c` — `ethtool_get_default_link_ksettings` (transceiver classes); `main.c` — `_mlx4_dev_port`; `en_netdev.c` — `mlx4_en_u64_to_mac` usage.
 
 ### 3.6 QUERY_ADAPTER (optional)
 
@@ -1756,6 +1798,9 @@ Sources: `en_tx.c` — `mlx4_en_xmit`, `mlx4_en_xmit_frame`, `build_inline_wqe`,
 - After INIT_PORT the link takes time to come up (autonegotiation, typically
   seconds; the source gives no bound). A UEFI driver should report "no media"
   until it does.
+- The supported, advertised, operational and partner link modes are in the
+  PTYS register (5.12), where the firmware offers it; autonegotiation state
+  bits are in QUERY_PORT (3.5, 5.13).
 
 Sources: `en_port.c` — `mlx4_en_QUERY_PORT`; `en_port.h` — `MLX4_EN_LINK_UP_MASK`, speed codes; `eq.c` — `mlx4_eq_int` (port change handling); `en_netdev.c` — `mlx4_en_linkstate`.
 
@@ -1783,6 +1828,406 @@ source MAC equals the port MAC. **[HW-CHECK]** whether loopback actually
 happens without SR-IOV.
 
 Sources: `en_resources.c` — `mlx4_en_fill_qp_context`; `en_rx.c` — `mlx4_en_process_rx_cq` (RX_FILTER_NEEDED); `include/linux/mlx4/qp.h` — `MLX4_FL_ETH_SRC_CHECK_MC_LB`, `MLX4_CTRL_ETH_SRC_CHECK_IF_COUNTER`.
+
+### 5.11 Module EEPROM (SFP/SFP+ and QSFP)
+
+Addition 2026-10-06 (#20). The driver can read the EEPROM of the plugged-in
+cable or optical module through firmware. The mlx4 sources do it with one
+command, **MAD_IFC carrying a vendor "module info" attribute**; ACCESS_REG is
+not used for this.
+
+#### 5.11.1 The command
+
+MAD_IFC, opcode **0x024**, **op_mod 3**, **in_modifier = port** (1-based),
+in_param = physical address of an input mailbox, out_param = physical address
+of a separate output mailbox (2.5), timeout class C (2.7). Linux issues it as a
+native command even in multi-function mode. No QUERY_DEV_CAP flag gates it:
+Linux sends it whenever ethtool asks for module information, on any Ethernet
+port.
+
+op_mod bits (named in FreeBSD `mlx4_ib`): bit 0 = do not check the M_Key,
+bit 1 = do not check the B_Key, bit 2 = the input mailbox carries a second
+256-byte block of work-completion information after the MAD (not used here),
+bit 3 = "network view" (multi-function only). The module read uses 3: both key
+checks off, no second block.
+
+#### 5.11.2 Mailbox layout
+
+Both mailboxes hold a 256-byte management datagram (MAD). Zero the input
+mailbox first, then fill:
+
+| Offset | Width | Field | Input value |
+|---|---|---|---|
+| 0x00 | u8 | base version | 0x01 |
+| 0x01 | u8 | management class | 0x01 |
+| 0x02 | u8 | class version | 0x01 |
+| 0x03 | u8 | method | 0x01 (Get) |
+| 0x04 | be16 | **MAD status** | 0 (output: see 5.11.3) |
+| 0x06 | be16 | class specific | 0 |
+| 0x08 | be64 | transaction ID | 0 |
+| 0x10 | be16 | attribute ID | **0xFF60** (module info) |
+| 0x12 | be16 | reserved | 0 |
+| 0x14 | be32 | attribute modifier | 0 |
+| 0x18 | be64 | M_Key | 0 |
+| 0x20 | be16 / be16 | DR SLID / DR DLID | 0 |
+| 0x24–0x3f | | reserved | 0 |
+| 0x40–0xff | 192 bytes | MAD data: the module-info block below | |
+
+Module-info block (at MAD offset 0x40, same layout in the output):
+
+| Offset (in MAD) | Width | Field | Value |
+|---|---|---|---|
+| 0x40 | u8 | I2C device address (7-bit form) | **0x50** or **0x51** (5.11.4) |
+| 0x41 | u8 | page number | 0 for SFP; 0–3 for QSFP (firmware rejects > 15) |
+| 0x42 | be16 | device address: byte offset within the 256-byte I2C address space | 0–255 |
+| 0x44 | be16 | reserved | 0 |
+| 0x46 | be16 | size in bytes | 1–**48** |
+| 0x48–0x4f | | reserved | 0 |
+| 0x50–0x7f | 48 bytes | data | output: the EEPROM bytes, starting at the device address |
+
+The address is the 7-bit I2C form (0x50/0x51), not the 8-bit form
+(0xA0/0xA2) the SFF standards print; FreeBSD notes this when it ignores the
+address a user passes in.
+
+Output: the firmware writes a MAD of the same layout to the output mailbox.
+Linux reads only the MAD status (be16 at 0x04) and the data (0x50 onward, the
+requested size). A read succeeded when the HCR status is 0 **and** the MAD
+status is 0.
+
+#### 5.11.3 Status and error codes
+
+Two levels:
+
+1. **HCR status** (2.6) non-zero: the command itself failed. The sources do
+   not say what a firmware without module-info support returns
+   **[HW-CHECK]** (item 17).
+2. **MAD status** (be16 at output 0x04) non-zero: the module read failed.
+   Bits 15:8 are a cable-info error code:
+
+| Code | Meaning (as the sources describe it) |
+|---|---|
+| 0x01 | invalid port |
+| 0x02 | operation not supported for this port (the port is CX4 or internal) |
+| 0x03 | cable not connected |
+| 0x04 | **the connected cable has no EEPROM (passive copper cable)** |
+| 0x05 | page number greater than 15 |
+| 0x06 | invalid device address or size (size 0, or address + size > 256) |
+| 0x07 | invalid I2C device address |
+| 0x08 | a cable violates the QSFP specification and ignores the ModSel signal |
+| 0x09 | I2C bus constantly busy |
+
+The sources give no meaning for bits 7:0 of the MAD status; log the whole
+value. Code 0x04 is itself a diagnosis: Linux's own text says a passive copper
+cable may have no EEPROM at all, so "no EEPROM" on a DAC is not a fault.
+
+Linux treats code **0x07 on a read at I2C address 0x51** as end of data, not
+as an error: some SFP modules do not answer at 0x51 (they have no diagnostics
+page), and the read just stops there.
+
+#### 5.11.4 Addressing, limits and splitting a larger read
+
+Linux exposes the module memory as one flat byte range and turns each flat
+offset into (I2C address, page, device address):
+
+1. **Identifier first.** Before every chunk Linux reads **1 byte at I2C 0x50,
+   page 0, device address 0** (the module identifier) and picks the mapping
+   from it. Values the sources know: **0x03 SFP/SFP+**, **0x0C QSFP**,
+   **0x0D QSFP+**, **0x11 QSFP28**. Any other identifier: Linux refuses to
+   read.
+2. **SFP (0x03):** flat 0–255 → I2C **0x50**, page 0, device address = flat
+   offset. Flat 256–511 → I2C **0x51**, page 0, device address = flat − 256.
+3. **QSFP (0x0C, 0x0D, 0x11):** I2C always **0x50**. Flat 0–255 → page 0,
+   device address = flat offset. Flat ≥ 256 → page = 1 + (flat − 256) / 128,
+   device address = flat − 128 × page, which lands in 128–255 (the upper half
+   of the address space, where pages are switched). So flat 256–383 is page 1,
+   384–511 page 2, 512–639 page 3.
+4. **At most 48 bytes per request.** Linux clamps larger sizes to 48.
+5. **No request crosses device address 256.** After the mapping in 2 or 3,
+   Linux shortens any request whose device address + size would pass 256 so
+   that it ends at device address 255; the firmware rejects
+   address + size > 256 (code 0x06). For a QSFP upper page this also stops a
+   request at the end of the page (flat 352 → page 1, address 224: 32 bytes,
+   not 48), and the next request starts on the next page.
+6. **Splitting:** Linux's reader loops: request (offset, remaining length);
+   the call returns the number of bytes read; add it to both; stop when the
+   call returns 0 (end of data, 5.11.3) or the requested length is reached;
+   stop with an error on a failure.
+7. **How much to read.** Linux sizes the whole read from bytes 0 and 1: SFP →
+   the SFF-8472 layout, two 256-byte I2C addresses; QSFP (0x0C) → SFF-8436;
+   QSFP+ (0x0D) → SFF-8636 if byte 1 (revision compliance) is ≥ 0x03, else
+   SFF-8436; QSFP28 → SFF-8636. The byte counts come from the generic ethtool
+   layer, outside these sources; by Linux's page arithmetic a QSFP read covers
+   at most 640 flat bytes (page 0 plus upper pages 1–3).
+
+For diagnostics a driver needs only: SFP, I2C 0x50 bytes 0–95; QSFP, page 0
+bytes 0–2 and 128–223. Neither needs a page other than 0.
+
+FreeBSD's `mlx4_get_module_info` is an older form: it never reads the
+identifier first, always sends page 0, and splits at 256 into 0x50/0x51 for
+every module, so for a QSFP it cannot reach upper pages 1–3. The Linux form is
+the one described above.
+
+#### 5.11.5 What the EEPROM bytes mean
+
+**What the mlx4 sources themselves establish:** the identifier byte at
+offset 0 and its four values (5.11.4); that QSFP+ byte 1 ≥ 0x03 selects the
+SFF-8636 layout; that a passive copper cable may have no EEPROM (code 0x04);
+that an SFP may have nothing at I2C 0x51. The sources decode nothing else; they
+hand the raw bytes to ethtool.
+
+**Everything in the two tables below is from the public SFF module
+standards, not from the mlx4 sources**: SFF-8472 (SFP management interface)
+with SFF-8431 (SFP+ electrical, which defines passive and active SFP+ cables),
+and SFF-8636 / SFF-8436 (QSFP+ management interface). They are given so the
+driver can label what it reads; confirm them against the real DAC
+**[HW-CHECK]** (item 17), and print the raw bytes alongside any label.
+
+SFP/SFP+ (identifier 0x03), I2C 0x50 ("A0h"):
+
+| Byte(s) | Field (SFF-8472) | Use |
+|---|---|---|
+| 0 | identifier (0x03 = SFP/SFP+) | module kind |
+| 2 | connector (0x07 LC, 0x21 copper pigtail; a DAC normally reads 0x21) | copper vs optical |
+| 3 | bits 7:4: 10G Ethernet compliance (bit 7 10GBASE-ER, 6 10GBASE-LRM, 5 10GBASE-LR, 4 10GBASE-SR) | optics only |
+| 6 | Ethernet compliance (bit 0 1000BASE-SX, 1 1000BASE-LX, 2 1000BASE-CX, 3 1000BASE-T) | 1G types |
+| 8 | SFP+ cable technology: **bit 2 = passive cable, bit 3 = active cable** | **passive vs active DAC** |
+| 12 | nominal signalling rate, units of 100 MBd (about 103 for 10G) | speed class |
+| 18 | for a copper cable: **cable length in metres** | length |
+| 20–35 | vendor name, ASCII, space-padded | |
+| 37–39 | vendor OUI | |
+| 40–55 | vendor part number, ASCII | |
+| 56–59 | vendor revision | |
+| 60–61 | for a cable: SFF-8431 cable-compliance bits instead of an optical wavelength | |
+| 68–83 | serial number, ASCII | |
+| 92 | diagnostic monitoring type; bit 6 = diagnostics implemented (only then does I2C 0x51 hold data) | whether 0x51 exists |
+
+QSFP/QSFP+/QSFP28 (identifier 0x0C/0x0D/0x11), I2C 0x50 page 0:
+
+| Byte(s) | Field (SFF-8636 / SFF-8436) | Use |
+|---|---|---|
+| 0 | identifier | module kind |
+| 1 | revision compliance (≥ 0x03 = SFF-8636; the mlx4 sources use this) | layout |
+| 2 | status; bit 2 = flat memory (no upper pages 1–3) | whether paging works |
+| 128 | identifier (copy) | |
+| 130 | connector (0x21 copper pigtail, 0x23 no separable connector; DACs use one of these) | copper vs optical |
+| 131 | 10/40G Ethernet compliance (bit 0 40G active cable, 1 40GBASE-LR4, 2 40GBASE-SR4, **3 40GBASE-CR4**, 4 10GBASE-SR, 5 10GBASE-LR, 6 10GBASE-LRM, 7 extended codes in byte 192) | compliance |
+| 146 | for a copper cable: **cable length in metres** | length |
+| 147 | device technology, bits 7:4: 0xA copper unequalized, **0xB copper passive equalized**, 0xC–0xF copper with **active** equalizers; lower values are optical transmitters | **passive vs active** |
+| 148–163 | vendor name, ASCII | |
+| 165–167 | vendor OUI | |
+| 168–183 | vendor part number, ASCII | |
+| 184–185 | vendor revision | |
+| 196–211 | serial number, ASCII | |
+
+Sources: `port.c` — `mlx4_get_module_id`, `mlx4_get_module_info`, `mlx4_sfp_eeprom_params_set`, `mlx4_qsfp_eeprom_params_set`, `cable_info_mad_err_str`, `struct mlx4_cable_info`, `MODULE_INFO_MAX_READ`, `I2C_ADDR_LOW`/`HIGH`, `I2C_PAGE_SIZE`, `I2C_HIGH_PAGE_SIZE`; `include/linux/mlx4/device.h` — `struct mlx4_mad_ifc`, `enum mlx4_module_id`; `en_ethtool.c` — `mlx4_en_get_module_info`, `mlx4_en_get_module_eeprom`; FreeBSD `mlx4_core/mlx4_port.c` — `mlx4_get_module_info`; FreeBSD `mlx4_en/mlx4_en_netdev.c` — `SIOCGI2C` handler, `mlx4_en_read_eeprom`; FreeBSD `mlx4_ib/mlx4_ib_mad.c` — `mlx4_MAD_IFC`, `mlx4_ib/mlx4_ib.h` — `MLX4_MAD_IFC_*`. Module byte meanings: SFF-8472, SFF-8431, SFF-8636, SFF-8436 (not mlx4).
+
+### 5.12 ACCESS_REG and the PTYS register
+
+Addition 2026-10-06 (#20).
+
+#### 5.12.1 ACCESS_REG (opcode 0x03b)
+
+ACCESS_REG reads or writes one firmware register. Opcode **0x03b**, **op_mod
+0**, **in_modifier 0**, input mailbox in in_param, a separate output mailbox
+in out_param, timeout class C. Linux sends it through its multi-function
+layer, which in native (single-function) mode passes it straight to firmware
+unchanged.
+
+Mailbox layout (input and output; zero the input mailbox first):
+
+| Offset | Width | Bits | Field | Input value |
+|---|---|---|---|---|
+| 0x00 | be16 | | constant | **0x0804** (the sources write this fixed value and do not name its parts) |
+| 0x02 | u8 | 6:0 | **register status** (output) | 0 |
+| 0x03 | u8 | | reserved | 0 |
+| 0x04 | be16 | | **register ID** | 0x5004 for PTYS |
+| 0x06 | u8 | 6:0 | **method**: 1 = query (read), 2 = write | |
+| 0x07 | u8 | | constant | **0x01** |
+| 0x08–0x0f | | | reserved | 0 |
+| 0x10 | be16 | 15:12 | constant | **3** |
+| | | 10:0 | **length**: register length in dwords, **plus one** | PTYS: 52 / 4 + 1 = 14, so the be16 is **0x300e** |
+| 0x12 | be16 | | reserved | 0 |
+| 0x14 | … | | **register data** (at most 4096 − 20 bytes) | see below |
+
+- **Query:** put the register's index fields in the register data (for PTYS:
+  local port and protocol mask), the rest zero. The firmware returns the
+  register in the output mailbox at 0x14; Linux copies back the register's
+  length.
+- **Write:** put the whole register, with the new values, in the register
+  data.
+- **Status:** first the HCR status (2.6); then output byte 0x02 bits 6:0. Any
+  non-zero register status means the access failed. The sources do not list
+  the register status values; log the raw value.
+
+The only register Linux accesses this way is **PTYS, ID 0x5004** ("port type
+and speed").
+
+**Gate.** Linux uses PTYS only when QUERY_DEV_CAP byte **0x7a bit 5**
+(ETH_PROT_CTRL, 3.4) is set. Without it Linux never issues ACCESS_REG and
+falls back to fixed values (5.13). The sources check nothing else: no device
+ID (15b3:1003 ConnectX-3 vs 15b3:1007 ConnectX-3 Pro) and no firmware version
+appear in the decision, so which cards and firmware offer PTYS is a property
+of the firmware, reported only through that bit. What firmware without the bit
+does with an ACCESS_REG PTYS query is not stated **[HW-CHECK]** (item 18).
+
+#### 5.12.2 PTYS register layout
+
+Offsets are within the register data; add 0x14 for the mailbox offset. Size
+0x34 (52) bytes.
+
+| Reg offset | Mailbox offset | Width | Bits | Field |
+|---|---|---|---|---|
+| 0x00 | 0x14 | u8 | 5 | **AN_DISABLE_CAP**: the firmware can turn autonegotiation off (reported) |
+| | | | 6 | **AN_DISABLE_ADMIN**: autonegotiation turned off (administrative setting) |
+| 0x01 | 0x15 | u8 | | **local port** (1-based) |
+| 0x02 | 0x16 | u8 | | reserved |
+| 0x03 | 0x17 | u8 | | **protocol mask**: bit 0 InfiniBand, bit 2 Ethernet. Linux sets **0x04** |
+| 0x04–0x0b | 0x18–0x1f | | | reserved |
+| 0x0c | 0x20 | be32 | | **eth_proto_cap**: link modes the port supports |
+| 0x10 | 0x24 | be16 | | IB width capability (skip) |
+| 0x12 | 0x26 | be16 | | IB speed capability (skip) |
+| 0x14 | 0x28 | be32 | | reserved |
+| 0x18 | 0x2c | be32 | | **eth_proto_admin**: link modes enabled (advertised) |
+| 0x1c | 0x30 | be16 | | IB width admin (skip) |
+| 0x1e | 0x32 | be16 | | IB speed admin (skip) |
+| 0x20 | 0x34 | be32 | | reserved |
+| 0x24 | 0x38 | be32 | | **eth_proto_oper**: the link mode in operation; 0 when the link is down |
+| 0x28 | 0x3c | be16 | | IB width operational (skip) |
+| 0x2a | 0x3e | be16 | | IB speed operational (skip) |
+| 0x2c | 0x40 | be32 | | reserved |
+| 0x30 | 0x44 | be32 | | **eth_proto_lp_adv**: link modes the link partner advertised |
+
+FreeBSD declares the same layout with byte 0 reserved (no autoneg bits) and
+never uses it.
+
+#### 5.12.3 Link-mode bits
+
+Each Ethernet mask (cap, admin, oper, partner) uses the same bit numbering.
+Linux maps each bit to one speed:
+
+| Bit | Mask | Link mode | Speed | Linux port class (supported set / active link) |
+|---|---|---|---|---|
+| 0 | 0x00000001 | 1000BASE-CX-SGMII | 1G | fibre / fibre |
+| 1 | 0x00000002 | 1000BASE-KX | 1G | backplane / none |
+| 2 | 0x00000004 | 10GBASE-CX4 | 10G | — / — (other) |
+| 3 | 0x00000008 | 10GBASE-KX4 | 10G | backplane / none |
+| 4 | 0x00000010 | 10GBASE-KR | 10G | backplane / none |
+| 5 | 0x00000020 | 20GBASE-KR2 | 20G | backplane / none |
+| 6 | 0x00000040 | 40GBASE-CR4 | 40G | fibre / direct attach |
+| 7 | 0x00000080 | 40GBASE-KR4 | 40G | backplane / none |
+| 8 | 0x00000100 | 56GBASE-KR4 | 56G | backplane / none |
+| 12 | 0x00001000 | **10GBASE-CR** | 10G | fibre / **direct attach** |
+| 13 | 0x00002000 | 10GBASE-SR | 10G | fibre / fibre |
+| 15 | 0x00008000 | 40GBASE-SR4 | 40G | fibre / fibre |
+| 17 | 0x00020000 | 56GBASE-CR4 | 56G | — / direct attach |
+| 18 | 0x00040000 | 56GBASE-SR4 | 56G | fibre / fibre |
+| 24 | 0x01000000 | 100BASE-TX | 100M | twisted pair / twisted pair |
+| 25 | 0x02000000 | 1000BASE-T | 1G | twisted pair / twisted pair |
+| 26 | 0x04000000 | 10GBASE-T | 10G | twisted pair / twisted pair |
+
+Bits 9–11, 14, 16, 19–23 and 27–31 are not defined by the sources; print
+them raw.
+
+Linux's port class: for the *supported* set it checks cap, in order: any of
+bits 24–26 → twisted pair; else any of 0, 6, 12, 13, 15, 18 → fibre; else any
+of 1, 3, 4, 5, 7, 8 → backplane. For the *active* port it checks oper (cap
+when oper is 0), in order: 24–26 → twisted pair; 0, 13, 15, 18 → fibre;
+**6, 12, 17 → direct attach**; 1, 3, 4, 5, 7, 8 → none; otherwise other. So a
+10G DAC that links should show bit 12 (10GBASE-CR) in oper **[HW-CHECK]**
+(item 18).
+
+#### 5.12.4 Relation to QUERY_PORT's speed code
+
+The sources keep them separate. Linux always takes the **reported speed**
+from QUERY_PORT byte 0x05 (3.5, 5.8) while the link is up, even when PTYS is
+available; PTYS feeds only the supported, advertised and partner sets and the
+port class. Nothing cross-checks the two. One would expect the speed of the
+oper bit (5.12.3) to match the speed code (0x00/0x01 = 10G and so on), but
+that is an inference.
+
+Sources: `fw.c` — `mlx4_ACCESS_REG`, `struct mlx4_access_reg`, `MLX4_ACCESS_REG_*_MASK`, `MLX4_ACCESS_REG_HEADER_SIZE`, `MLX4_REG_ID_PTYS`, `mlx4_ACCESS_PTYS_REG`, `mlx4_ACCESS_REG_wrapper`, `mlx4_QUERY_DEV_CAP` (0x7a bit 5); `include/linux/mlx4/device.h` — `enum mlx4_access_reg_method`, `enum mlx4_ptys_proto`, `enum mlx4_ptys_flags`, `struct mlx4_ptys_reg`, `MLX4_DEV_CAP_FLAG2_ETH_PROT_CTRL`; `include/linux/mlx4/cmd.h` — `MLX4_CMD_ACCESS_REG`; `en_port.h` — `enum mlx4_link_mode`, `MLX4_PROT_MASK`; `en_ethtool.c` — `mlx4_en_init_ptys2ethtool_map`, `ptys2ethtool_update_supported_port`, `ptys_get_active_port`, `ethtool_get_ptys_link_ksettings`, `mlx4_en_get_link_ksettings`; `en_port.c` — `mlx4_en_QUERY_PORT`. FreeBSD: `mlx4_core/mlx4_fw.c` (same functions), `device.h` — `struct mlx4_ptys_reg`.
+
+### 5.13 Forcing speed and autonegotiation
+
+Addition 2026-10-06 (#20). This answers #17 item 3 and stormbootx#80.
+
+**What the sources establish:**
+
+1. **No SET_PORT sub-operation sets speed or autonegotiation.** The Ethernet
+   SET_PORT sub-operations the sources define are GENERAL, RQP_CALC,
+   MAC_TABLE, VLAN_TABLE, PRIO_MAP, GID_TABLE, PRIO2TC, SCHEDULER, VXLAN and
+   RoCE address (Appendix A). GENERAL carries MTU, pause, priority flow
+   control, FCS handling, user MTU/MAC and PHV, and nothing on speed or
+   autonegotiation (5.3). No other command in the sources does it.
+2. **The only speed control is a PTYS write** (5.12), and Linux allows it
+   only when QUERY_DEV_CAP 0x7a bit 5 (ETH_PROT_CTRL) is set. Without that bit
+   Linux refuses every speed or autoneg change with "invalid argument" and
+   reports a fixed default (10GBASE-T supported and advertised, autoneg off,
+   port class from QUERY_PORT's transceiver byte, 3.5).
+3. **Linux's sequence** (ethtool "set link settings"):
+   1. Refuse half duplex. Refuse if ETH_PROT_CTRL is not set.
+   2. PTYS query (method 1) with local port = the port and protocol mask =
+      0x04.
+   3. If autoneg **off** is asked with a speed: admin = every link mode in
+      5.12.3 whose speed equals the requested speed, ANDed with cap. Speed 0
+      means "restore": admin = cap. **AN_DISABLE_ADMIN (byte 0 bit 6) is set
+      only if** the new admin includes bit 0 or bit 1 (the 1G modes
+      1000BASE-CX-SGMII, 1000BASE-KX) **and** the queried byte 0 has
+      AN_DISABLE_CAP (bit 5).
+      If autoneg **on** is asked: admin = the requested advertised modes,
+      and AN_DISABLE_ADMIN is cleared.
+   4. admin &= cap. If the result is 0, refuse ("not supported link mode").
+   5. If admin equals the current admin and AN_DISABLE_CAP is set and the
+      autoneg setting is unchanged: nothing to do. (Without AN_DISABLE_CAP
+      Linux always writes.)
+   6. PTYS write (method 2): the whole register as the query returned it,
+      with eth_proto_admin replaced and byte 0 bit 6 as decided in step 3.
+   7. If the port is up, restart it: Linux's full port stop (CLOSE_PORT first,
+      then QPs, CQs and steering torn down) and port start (rings, QPs,
+      SET_PORT GENERAL, RQP_CALC, **INIT_PORT**). If the port is down, nothing
+      more: the new admin is in place for the next start.
+4. **Reporting.** In the PTYS path Linux reports autoneg as *in effect* from
+   QUERY_PORT byte 0 bit 6 (autonegotiation complete, 3.5), and lists "Autoneg" among the
+   supported and advertised modes only when QUERY_DEV_CAP 0x9c bit 0
+   (ETH_BACKPL_AN_REP, 3.4) is set and QUERY_PORT byte 1 bit 7
+   (autonegotiation enabled) is set. With PTYS it also reports the partner's
+   modes (eth_proto_lp_adv). The sources only read these QUERY_PORT bits;
+   nothing in them sets autonegotiation through QUERY_PORT or SET_PORT.
+5. **Consequence: at 10G there is no "autoneg off" in the sources.** For 10G
+   (and 20/40/56G) Linux's "autoneg off, speed X" only narrows eth_proto_admin
+   to the link modes of speed X. The one explicit autoneg-disable bit is used
+   only for the two 1G modes, and only when the firmware reports
+   AN_DISABLE_CAP. Whether narrowing admin to bit 12 (10GBASE-CR) alone makes
+   the port behave like "fixed 10G" against a switch port fixed at 10G is
+   **not established** **[HW-CHECK]** (item 19).
+6. **Not stated in the sources:** whether the admin setting survives a device
+   reset, a reboot or the OS driver's load; whether a bare CLOSE_PORT →
+   INIT_PORT toggle is enough to apply it (Linux always does a full stop and
+   start); how long the link takes afterwards.
+
+**For a UEFI driver (recommended, inferred from the above):**
+
+- Read QUERY_DEV_CAP 0x7a bit 5. If it is 0, do not offer speed or autoneg
+  settings; say so in the log. That is the sources' behaviour.
+- If it is 1: do the PTYS query and write (steps 2–6) **before** INIT_PORT
+  in Start (6.1), so no port restart is needed. To change it later: PTYS
+  write, CLOSE_PORT, INIT_PORT (Linux's order: write first, then the restart)
+  **[HW-CHECK]** that the bare toggle applies it.
+- Because persistence is unknown, a driver that narrowed admin SHOULD write
+  it back to cap (and clear AN_DISABLE_ADMIN) in Stop and at
+  ExitBootServices, so the OS driver finds the default (Linux's own "speed 0"
+  restore is the same write) **[HW-CHECK]**.
+
+**On the X9 blades (console evidence, not from the sources):** the
+QUERY_DEV_CAP dumps the driver already logs (server1, 3, 4, 7, 8;
+ConnectX-3 15b3:1003, firmware 2.30.8000) show byte **0x7a = 0x00** and the
+be32 at **0x9c = 0x504ab600** (bit 0 clear). So by the sources' rule these
+cards offer **no PTYS** and therefore **no speed or autoneg control**; Linux
+on them would refuse an ethtool speed change and report fixed values. The
+switch-side setting (fixed 10G, #17) is the only method the evidence supports
+there. Item 18 records whether the firmware answers a PTYS query anyway.
+
+Sources: `en_ethtool.c` — `mlx4_en_set_link_ksettings`, `speed_set_ptys_admin`, `speed2ptys_link_modes`, `ethtool2ptys_link_modes`, `mlx4_en_get_link_ksettings`, `ethtool_get_default_link_ksettings`, `mlx4_en_autoneg_get`; `en_netdev.c` — `mlx4_en_stop_port`, `mlx4_en_start_port`; `fw.c` — `mlx4_ACCESS_PTYS_REG`, `mlx4_QUERY_DEV_CAP`; `mlx4.h` — `struct mlx4_set_port_general_context`; `include/linux/mlx4/cmd.h` — `MLX4_SET_PORT_*`; `include/linux/mlx4/device.h` — `enum mlx4_ptys_flags`.
 
 ---
 
@@ -1931,6 +2376,33 @@ command's status).
 15. **ExitBootServices**: the orderly teardown completes quickly, the OS
     driver then loads cleanly; also the reset-only fallback.
 16. **L_Key collision with 0x100** (4.3): reserved MPT count on the card.
+17. **Module EEPROM read** (5.11, addition #20): on the X9 blades'
+    ConnectX-3 (15b3:1003, firmware 2.30.8000), does MAD_IFC op_mod 3 with
+    attribute 0xFF60 complete (HCR status), and what MAD status comes back
+    with the DAC plugged in, with no cable, and with an optic? Log the HCR
+    status, the whole MAD status, and the identifier byte. If data comes
+    back: the module kind (SFP+ 0x03 or QSFP), and the raw bytes behind the
+    SFF labels (SFP: 0, 2, 3, 6, 8, 12, 18, 20–55, 60–61, 92; QSFP: 0–2,
+    130, 131, 146, 147, 148–183), so the labels in 5.11.5 can be checked
+    against the cable's datasheet. A passive DAC may legitimately answer
+    cable error 0x04 (no EEPROM).
+18. **PTYS availability** (5.12): QUERY_DEV_CAP 0x7a bit 5 (ETH_PROT_CTRL)
+    and 0x9c bit 0 (ETH_BACKPL_AN_REP) on the card. The existing captures
+    already answer the flags for server1, 3, 4, 7 and 8: **0x7a = 0x00, 0x9c =
+    0x504ab600, so both are 0** (see 5.13). Open: whether firmware without the
+    flag answers an ACCESS_REG PTYS *query* anyway (HCR status, register
+    status, and if it answers, cap/admin/oper/partner masks and byte 0),
+    which is outside what the sources do and should only be tried as a
+    read-only diagnostic. On a card that has the flag (a ConnectX-3 Pro or
+    newer firmware, if one is available): the masks for the DAC, and whether
+    oper shows bit 12 (10GBASE-CR) at 10G.
+19. **Forced speed** (5.13), only on a card where item 18 shows PTYS:
+    AN_DISABLE_CAP; whether narrowing admin to the 10G modes (and to bit 12
+    alone) before INIT_PORT gives link against a switch port fixed at 10G
+    with autoneg off, and against one left on autoneg; whether a write after
+    INIT_PORT needs CLOSE_PORT → INIT_PORT and whether that bare toggle is
+    enough; whether the admin setting survives a device reset (1.6) and a
+    reboot, and what the OS `mlx4_en` then reports.
 
 ### 7.1 Results on the X9 blades
 
@@ -1987,7 +2459,7 @@ From `include/linux/mlx4/cmd.h`. Commands marked • are used in this document.
 | 0x00a | CLOSE_PORT • | | 0x037 | QUERY_SRQ |
 | 0x00b | QUERY_HCA | | 0x038 | SQD2SQD_QP |
 | 0x00c | SET_PORT • | | 0x03a | CONFIG_DEV |
-| 0x00d | SW2HW_MPT • | | 0x03b | ACCESS_REG |
+| 0x00d | SW2HW_MPT • | | 0x03b | ACCESS_REG • |
 | 0x00e | QUERY_MPT | | 0x040 | ARM_SRQ |
 | 0x00f | HW2SW_MPT • | | 0x043 | QUERY_PORT • |
 | 0x010 | READ_MTT | | 0x047 | SET_VLAN_FLTR |
@@ -2010,7 +2482,7 @@ From `include/linux/mlx4/cmd.h`. Commands marked • are used in this document.
 | 0x021 | 2RST_QP • | | 0x065 | QP_FLOW_STEERING_ATTACH |
 | 0x022 | QUERY_QP • | | 0x066 | QP_FLOW_STEERING_DETACH |
 | 0x023 | CONF_SPECIAL_QP • | | 0x068 | CONGESTION_CTRL |
-| 0x024 | MAD_IFC | | 0x080 | ALLOCATE_VPP |
+| 0x024 | MAD_IFC • | | 0x080 | ALLOCATE_VPP |
 | 0x025 | READ_MCG • | | 0x081 | SET_VPORT_QOS |
 | 0x026 | WRITE_MCG • | | 0x203 | MAD_DEMUX |
 | 0x027 | MGID_HASH • | | 0xff6 | RUN_FW • |
@@ -2042,6 +2514,10 @@ Sub-operation codes:
 | MGID_HASH op_mod | 1 for Ethernet when VEP_MC_STEER, else 0 |
 | NOP in_modifier | 0x1f ("finish as soon as possible") |
 | CLOSE_HCA op_mod | 0 normal, 1 panic |
+| MAD_IFC op_mod (bits) | bit 0 skip M_Key check, bit 1 skip B_Key check, bit 2 work-completion block follows the MAD, bit 3 network view (multi-function); module info uses 3 (5.11) |
+| MAD_IFC in_modifier | port (bits 15:0); with op_mod bit 2, the source LID in bits 31:16 (not used here) |
+| ACCESS_REG method (mailbox byte 0x06) | 1 query, 2 write (5.12) |
+| ACCESS_REG register IDs | 0x5004 PTYS (the only one in the sources) |
 
 ## Appendix B. Command status codes
 
@@ -2104,6 +2580,26 @@ See 2.6.
 | MGM protocol Ethernet | 1 (bits 31:30 of members_count) | 5.4 |
 | next_gid_index shift | 6 | 5.4 |
 | Frame overhead for SET_PORT mtu | +26 (14 + 8 + 4) | 5.9 |
+| MAD size in each MAD_IFC mailbox / MAD data offset | 256 / 0x40 | 5.11 |
+| MAD base version, class, class version, method (Get) | 1, 1, 1, 1 | 5.11 |
+| Module-info attribute ID | 0xFF60 | 5.11 |
+| MAD_IFC op_mod for module info | 3 | 5.11 |
+| Module-info block: I2C addr / page / device addr / size / data | MAD 0x40 / 0x41 / 0x42 (be16) / 0x46 (be16) / 0x50 | 5.11 |
+| Module read: max bytes per request | 48 | 5.11 |
+| Module I2C addresses (7-bit) | 0x50 (A0h), 0x51 (A2h, SFP only) | 5.11 |
+| Module I2C space / QSFP upper page | 256 bytes / 128 bytes (device address 128–255), pages ≤ 15 | 5.11 |
+| Module identifiers known to mlx4 | 0x03 SFP, 0x0C QSFP, 0x0D QSFP+, 0x11 QSFP28 | 5.11 |
+| QSFP+ revision byte selecting SFF-8636 | byte 1 ≥ 0x03 | 5.11 |
+| Cable-info error code | MAD status bits 15:8, codes 0x01–0x09 | 5.11 |
+| ACCESS_REG header size | 20 (0x14) bytes | 5.12 |
+| ACCESS_REG header constants | be16 0x0804 at 0x00; u8 0x01 at 0x07; bits 15:12 = 3 of be16 at 0x10 | 5.12 |
+| ACCESS_REG status / method / length masks | 0x7f / 0x7f / 0x7ff (length = dwords + 1) | 5.12 |
+| PTYS register ID / size / length field | 0x5004 / 52 bytes / 0x300e | 5.12 |
+| PTYS protocol mask Ethernet / IB | 0x04 / 0x01 | 5.12 |
+| PTYS byte 0: AN_DISABLE_CAP / AN_DISABLE_ADMIN | bit 5 (0x20) / bit 6 (0x40) | 5.12, 5.13 |
+| QUERY_DEV_CAP ETH_PROT_CTRL | byte 0x7a bit 5 | 3.4, 5.12 |
+| QUERY_DEV_CAP ETH_BACKPL_AN_REP | be32 0x9c bit 0 | 3.4, 5.13 |
+| QUERY_PORT autoneg complete / enabled | byte 0x00 bit 6 / byte 0x01 bit 7 | 3.5, 5.13 |
 
 CQE error syndromes (byte 0x1b of an error CQE): 0x01 local length, 0x02
 local QP operation, 0x04 local protection, 0x05 work request flushed, 0x06
@@ -2192,5 +2688,11 @@ exceeded, 0x16 RNR retry exceeded, 0x22 remote aborted.
 | `en_rx.c` | `mlx4_en_calc_rx_buf`, `mlx4_en_init_rx_desc`, `mlx4_en_activate_rx_rings`, `mlx4_en_config_rss_qp`, `mlx4_en_config_rss_steer`, `mlx4_en_process_rx_cq` | 4.8, 5.6 |
 | `en_tx.c` | `mlx4_en_create_tx_ring`, `mlx4_en_activate_tx_ring`, `mlx4_en_xmit`, `mlx4_en_xmit_frame`, `build_inline_wqe`, `mlx4_en_process_tx_cq`, `mlx4_en_stamp_wqe`, `mlx4_en_xmit_doorbell` | 5.7 |
 | `en_cq.c` | `mlx4_en_create_cq`, `mlx4_en_activate_cq`, `mlx4_en_arm_cq` | 4.7 |
-| `en_port.c` | `mlx4_en_QUERY_PORT` | 3.5, 5.8 |
-| `include/linux/mlx4/*.h` | `cmd.h` opcodes; `device.h` flags, events, opcodes, `mlx4_eqe`; `qp.h` QP context and WQE segments; `cq.h` CQE and CQ doorbells; `doorbell.h` UAR offsets | throughout |
+| `en_port.c` | `mlx4_en_QUERY_PORT` | 3.5, 5.8, 5.13 |
+| `port.c` (addition #20) | `mlx4_get_module_id`, `mlx4_get_module_info`, `mlx4_sfp_eeprom_params_set`, `mlx4_qsfp_eeprom_params_set`, `cable_info_mad_err_str` | 5.11 |
+| `fw.c` (addition #20) | `mlx4_ACCESS_REG`, `mlx4_ACCESS_PTYS_REG`, `mlx4_ACCESS_REG_wrapper`, `mlx4_QUERY_DEV_CAP` (0x7a, 0x9c), `dump_dev_cap_flags2` | 3.4, 5.12 |
+| `en_ethtool.c` (addition #20) | `mlx4_en_get_module_info`, `mlx4_en_get_module_eeprom`, `mlx4_en_init_ptys2ethtool_map`, `ptys2ethtool_update_supported_port`, `ptys_get_active_port`, `ethtool_get_ptys_link_ksettings`, `ethtool_get_default_link_ksettings`, `mlx4_en_get_link_ksettings`, `mlx4_en_set_link_ksettings`, `speed_set_ptys_admin`, `speed2ptys_link_modes`, `mlx4_en_autoneg_get` | 3.5, 5.11–5.13 |
+| `en_port.h`, `mlx4_en.h` (addition #20) | `enum mlx4_link_mode`, `MLX4_PROT_MASK`, `MLX4_EN_ANC_MASK`, `MLX4_EN_AUTONEG_MASK`, `MLX4_EN_PORT_ANC`/`ANE` | 3.5, 5.12, 5.13 |
+| FreeBSD `mlx4_ib/mlx4_ib_mad.c`, `mlx4_ib/mlx4_ib.h` (addition #20) | `mlx4_MAD_IFC`, `MLX4_MAD_IFC_*` | 5.11 |
+| FreeBSD `mlx4_en/mlx4_en_netdev.c` (addition #20) | `SIOCGI2C` handler, `mlx4_en_get_module_info`, `mlx4_en_get_module_eeprom`, `mlx4_en_read_eeprom` | 5.11 |
+| `include/linux/mlx4/*.h` | `cmd.h` opcodes; `device.h` flags, events, opcodes, `mlx4_eqe`, and (addition #20) `mlx4_mad_ifc`, `mlx4_module_id`, `mlx4_access_reg_method`, `mlx4_ptys_proto`, `mlx4_ptys_flags`, `mlx4_ptys_reg`; `qp.h` QP context and WQE segments; `cq.h` CQE and CQ doorbells; `doorbell.h` UAR offsets | throughout |

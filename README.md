@@ -35,7 +35,7 @@ the rustnic media carries no iPXE at all. This crate replaces it (stormbootx#27,
 **Written from `docs/spec/connectx3.md` only.** The public ConnectX-3 PRM does
 not exist (NVIDIA supplies it under a support contract), so an independent
 agent wrote that spec from the OpenIB.org BSD option of the dual-licensed
-Linux/FreeBSD mlx4 sources (#10); [`NOTICE`](NOTICE) carries their notice. The
+Linux/FreeBSD mlx4 sources (#10; module EEPROM, PTYS and speed/autoneg added in #20); [`NOTICE`](NOTICE) carries their notice. The
 driver is implemented from the spec, not from those sources, and nothing comes
 from iPXE's hermon (GPL). The crate is MIT.
 
@@ -215,7 +215,7 @@ skipped`, `port N: no link after 5 s; reported as no media`, link changes
 (`stormnic-mlx4: port N: link up/down`), each followed by what QUERY_PORT
 reports about the link and module (speed code, autonegotiation, transceiver
 type, vendor OUI, wavelength and code, spec 3.5; the speed means nothing
-without link, and the spec has no supported/advertised speed masks), error completions (`rx:`/`tx: error
+without link; the PTYS speed masks of spec 5.12 need QUERY_DEV_CAP 0x7a bit 5, which the blades' firmware 2.30.8000 does not set, spec 5.13), error completions (`rx:`/`tx: error
 completion, syndrome ...`) and EQ events (CQ and QP errors). Other outcomes:
 `Supported: already has an SNP, leaving it to the platform's driver`,
 `Supported: no, PCI I/O is held (<status>)`, `Start: cannot claim PCI I/O

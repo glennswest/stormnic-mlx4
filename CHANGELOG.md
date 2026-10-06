@@ -5,6 +5,9 @@
 <!-- New unreleased changes go here -->
 
 ### 2026-10-06
+- **docs:** Spec addition by an independent agent from the BSD option of the Linux/FreeBSD mlx4 sources (new pinned commits in §0.2 and NOTICE): §5.11 module EEPROM read (MAD_IFC op_mod 3, attribute 0xFF60, 48-byte chunks, cable-info error codes, SFF byte meanings), §5.12 ACCESS_REG and the PTYS register (layout, link-mode bit table, gated on QUERY_DEV_CAP 0x7a bit 5), §5.13 forcing speed/autoneg (no SET_PORT path; PTYS admin write only, a real autoneg-off bit only for 1G), §7 HW-checks 17–19, rows in §2.9, §3.4, §3.5 and Appendices A, C, F. The blades' firmware 2.30.8000 reports 0x7a = 0x00, so PTYS (advertised masks, forced speed) is not offered there (#20).
+
+### 2026-10-06
 - **docs:** README status and pin updated: RX and a lease are on record on server3 and server8, §7.1 holds the HW-check results, and stormbootx#66 now asks for v0.2.3. Work plan: #18 done, #21 open (#18).
 
 ### 2026-10-06
