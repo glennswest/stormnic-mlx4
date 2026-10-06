@@ -46,7 +46,7 @@ No standalone component golden. The owner approved shipping inside stormbootx's
 the mlx4 integration: `scripts/build-nic-drivers.sh` builds this crate at the
 pin, and the `stormbootx-rustnic` media (`STORMNIC_ON_MEDIA="ixgbe mlx4"`)
 carries it with no iPXE. The pin was `cf37f8b` (v0.2.1) as of 2026-10-04;
-stormbootx#66 pinned v0.2.3 (`0e50017`); stormbootx#104 asks for v0.2.4 (`32083cd`). `--drivers DIR` is the manual media assembly
+stormbootx#66 pinned v0.2.3 (`0e50017`); stormbootx#104 asks for v0.2.5 (`04e7d2c`; first asked for v0.2.4). `--drivers DIR` is the manual media assembly
 interface, not a way to retain an sc-build artifact. sc-build keeps no image.
 The media/golden work belongs to stormbootx; do not create a persistent build
 checkout or copy artifacts out of sc-build.
@@ -99,13 +99,12 @@ Open:
   **Built in v0.2.4 (`32083cd`, 2026-10-06):** `src/diag.rs`/`src/module.rs` print the module EEPROM (5.11) and a
   read-only PTYS query (5.12) after the link wait and at every link-down, plus a `speed control:` line; no PTYS
   write (item 3 is not offered on the blades, 5.13). sc-build passes (subsystem 11, host tests 9 + 8). Pin asked in
-  stormbootx#104. Left: a rustnic boot at that pin; record HW-checks 17–18 in spec §7.1, then close #17.
-- [ ] #16 quiet console by default, trace behind a verbose switch. **In progress (2026-10-06):** ixgbe#22's shape
-  (owner on #16): `src/console.rs` (`say!` always, `trace!` verbose or kept in a 16-line ring, `fail!` replays the
-  ring then prints), `src/trace.rs` (the ring, host test `test/trace.rs`), `verbose` feature, EFI variable
-  `StormnicVerbose` (GUID ce1479a2-eab9-4176-b0ad-c909ea5b8e0b, first byte non-zero) read once at the entry point.
-  Default: one line per port (`stormnic-mlx4 X.Y.Z: LOC 15b3:DDDD NAME: port N MAC …, link …, SNP installed`) plus
-  warnings/errors; the command trace, ICM sizes, per-frame lines and the #17 diagnostics on a good link go to trace.
+  stormbootx#104 (now v0.2.5). Left: a **verbose** rustnic boot at that pin (stormbootx#102 sets `StormnicVerbose`);
+  record HW-checks 17–18 in spec §7.1, then close #17.
+- [ ] #16 quiet console by default, trace behind a verbose switch. **Built in v0.2.5 (`04e7d2c`, 2026-10-06)**, ixgbe#22's
+  shape: `src/console.rs` (`say!`/`trace!`/`alarm!`/`note!`), `src/trace.rs` (16-line replay ring, `test/trace.rs`),
+  `verbose` feature, `StormnicVerbose` (GUID ce1479a2-…-c909ea5b8e0b). sc-build passes (both images, host tests
+  9 + 8 + 3). Pin asked in stormbootx#104. Left: a rustnic boot at that pin showing the one line per port.
 - [ ] #7 unlogged identify/Start error paths. #13 byte-reproducible image.
 - [ ] #5 retire `ipxe-hermon.efi` from the stormbootx media (stormbootx#27; still opt-in there,
   `IPXE_DRIVERS="intelx hermon"`).

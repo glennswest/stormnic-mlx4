@@ -122,8 +122,9 @@ no iPXE; the normal stormbootx media does not carry it. This repository has no
 standalone component golden, and sc-build retains no artifacts.
 
 The pin is `0e50017` (v0.2.3: the link and module lines, and the own-frame line
-for spec 7 item 14; stormbootx#66). stormbootx#104 asks for v0.2.4 (`32083cd`:
-the module EEPROM, PTYS and speed-control lines of #17). A boot of the rustnic media is the hardware
+for spec 7 item 14; stormbootx#66). stormbootx#104 asks for v0.2.5 (`04e7d2c`:
+the module EEPROM, PTYS and speed-control lines of #17, and the quiet console of
+#16; boot verbose for the hardware checks). A boot of the rustnic media is the hardware
 check: stormbootx prints `tcp4 : smoltcp over SNP (...)` with this driver's
 `port N SNP: initialized` and `port N rx:` lines behind it. The master handles
 the media boot and console capture.
