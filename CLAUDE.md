@@ -85,10 +85,11 @@ Done (history in git and CHANGELOG.md):
 
 Open:
 
-- [ ] #18 RX through this driver on metal, and spec section 7 HW-checks 1–14 recorded (in §7 and on #18).
-  Items 1–4 and 12 can be read from the server3 v0.2.1 console now. Then one rustnic boot of server1
-  (DAC links at 10G) through the master: pass = stormbootx `tcp4 : smoltcp over SNP`, `stormnic-mlx4: port 1 rx:`
-  lines and a lease through f4:52:14:84:b7:e0. Same boot gives §7 items 5–11, 13, 14 and 16.
+- [ ] #18 RX through this driver on metal, and spec section 7 HW-checks 1–14 recorded. RX, lease and claim are on
+  the SOL logs of server3 (8 boots, 2026-10-02..04) and server8 (2026-10-05), at v0.2.1. In progress (2026-10-06):
+  record items 1–13 from those logs in spec §7.1 and on #18. Item 14 (own-frame loopback) cannot be read there,
+  because `wanted()` drops own frames before `log_frame`; v0.2.3 logs the first one. Item 14 goes to its own issue
+  for the next boot at the new pin, then #18 closes.
 - [ ] #12 §7 items 15 (OS hand-off, `mlx4_core` probe after ExitBootServices) and 16 (`memory region: MPT …, L_Key …`,
   already on the server3 console).
 - [ ] #17 / #20 DAC link diagnostics beyond spec 3.5 (module EEPROM, PTYS speed masks, forced speed): spec first (#20).
