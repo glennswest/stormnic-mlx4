@@ -49,7 +49,8 @@ pub struct Child {
     snp: SimpleNetworkProtocol,
     mode: NetworkMode,
     nic: *mut Nic,
-    port: usize,
+    /// Index into `Eth::ports`.
+    pub port: usize,
     pub handle: Handle,
     path: Vec<u8>,
     rx_logged: u32,
@@ -170,7 +171,7 @@ impl Child {
         // SAFETY: the child is boxed and lives until `uninstall` closes the event.
         let st = unsafe { (bs.create_event)(EventType::NOTIFY_WAIT, Tpl::CALLBACK, Some(wait_notify), ctx.cast(), &mut ev) };
         if st.is_error() {
-            uefi::println!("  port {num}: WaitForPacket event: {st:?}");
+            alarm!("  port {num}: WaitForPacket event: {st:?}");
             return Err(st);
         }
         c.snp.wait_for_packet = ev;
@@ -182,13 +183,13 @@ impl Child {
             (bs.install_protocol_interface)(&mut h, &path_guid, InterfaceType::NATIVE_INTERFACE, c.path.as_ptr().cast())
         };
         if st.is_error() {
-            uefi::println!("  port {num}: device path install: {st:?}");
+            alarm!("  port {num}: device path install: {st:?}");
             let _ = unsafe { (bs.close_event)(ev) };
             return Err(st);
         }
         let st = unsafe { (bs.install_protocol_interface)(&mut h, &snp_guid, InterfaceType::NATIVE_INTERFACE, (&raw const c.snp).cast()) };
         if st.is_error() {
-            uefi::println!("  port {num}: SNP install: {st:?}");
+            alarm!("  port {num}: SNP install: {st:?}");
             unsafe {
                 let _ = (bs.uninstall_protocol_interface)(h, &path_guid, c.path.as_ptr().cast());
                 let _ = (bs.close_event)(ev);
@@ -199,9 +200,9 @@ impl Child {
         let mut iface: *mut c_void = ptr::null_mut();
         let st = unsafe { (bs.open_protocol)(controller, &PciIo::GUID, &mut iface, agent, h, OPEN_BY_CHILD_CONTROLLER) };
         if st.is_error() {
-            uefi::println!("  port {num}: PCI I/O by child: {st:?}");
+            say!("  port {num}: PCI I/O by child: {st:?}");
         }
-        uefi::println!(
+        trace!(
             "  port {num}: SNP installed on a child handle, MAC {}, media {}",
             Mac(mac),
             if link { "present" } else { "absent" }
@@ -221,7 +222,7 @@ impl Child {
             if st.is_error() {
                 let mut iface: *mut c_void = ptr::null_mut();
                 let _ = (bs.open_protocol)(controller, &PciIo::GUID, &mut iface, agent, self.handle, OPEN_BY_CHILD_CONTROLLER);
-                uefi::println!("stormnic-mlx4: port child: SNP uninstall refused ({st:?})");
+                say!("stormnic-mlx4: port child: SNP uninstall refused ({st:?})");
                 return false;
             }
             let _ = (bs.uninstall_protocol_interface)(self.handle, &path_guid, self.path.as_ptr().cast());
@@ -263,7 +264,7 @@ impl Child {
         *logged += 1;
         let last = *logged == LOG_FRAMES;
         let num = self.num();
-        uefi::println!(
+        trace!(
             "stormnic-mlx4: port {num} {dir}: {len} bytes {} <- {} type {:04x}{}",
             Mac(f[0..6].try_into().unwrap()),
             Mac(f[6..12].try_into().unwrap()),
@@ -281,7 +282,7 @@ impl Child {
             // Spec 7 item 14: the RX QP's loopback source check should keep
             // these out; say so once if one gets through.
             if !core::mem::replace(&mut self.own_logged, true) {
-                uefi::println!(
+                say!(
                     "stormnic-mlx4: port {} rx: own frame looped back ({len} bytes to {}), dropped (5.10); no more logged",
                     self.num(),
                     Mac(dst)
@@ -347,7 +348,7 @@ unsafe extern "efiapi" fn start(this: *const SimpleNetworkProtocol) -> Status {
         return Status::ALREADY_STARTED;
     }
     c.mode.state = NetworkState::STARTED;
-    uefi::println!("stormnic-mlx4: port {} SNP: started", c.num());
+    trace!("stormnic-mlx4: port {} SNP: started", c.num());
     Status::SUCCESS
 }
 
@@ -356,7 +357,7 @@ unsafe extern "efiapi" fn stop(this: *const SimpleNetworkProtocol) -> Status {
     match c.mode.state {
         NetworkState::STARTED => {
             c.mode.state = NetworkState::STOPPED;
-            uefi::println!("stormnic-mlx4: port {} SNP: stopped", c.num());
+            trace!("stormnic-mlx4: port {} SNP: stopped", c.num());
             Status::SUCCESS
         }
         NetworkState::STOPPED => Status::NOT_STARTED,
@@ -380,7 +381,7 @@ unsafe extern "efiapi" fn initialize(this: *const SimpleNetworkProtocol, _rx_ext
     c.refresh();
     c.mode.state = NetworkState::INITIALIZED;
     let media = if bool::from(c.mode.media_present) { "present" } else { "absent" };
-    uefi::println!("stormnic-mlx4: port {} SNP: initialized, media {media}", c.num());
+    trace!("stormnic-mlx4: port {} SNP: initialized, media {media}", c.num());
     Status::SUCCESS
 }
 
@@ -397,7 +398,7 @@ unsafe extern "efiapi" fn shutdown(this: *const SimpleNetworkProtocol) -> Status
     c.mode.receive_filter_setting = 0;
     c.mode.mcast_filter_count = 0;
     c.mode.state = NetworkState::STARTED;
-    uefi::println!("stormnic-mlx4: port {} SNP: shut down", c.num());
+    trace!("stormnic-mlx4: port {} SNP: shut down", c.num());
     Status::SUCCESS
 }
 
@@ -445,7 +446,7 @@ unsafe extern "efiapi" fn receive_filters(
         c.mode.mcast_filter_count = new.len() as u32;
     }
     if setting != c.mode.receive_filter_setting || !new.is_empty() {
-        uefi::println!(
+        trace!(
             "stormnic-mlx4: port {} SNP: receive filters {setting:#x}, {} multicast address(es)",
             c.num(),
             c.mode.mcast_filter_count

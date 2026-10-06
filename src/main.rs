@@ -24,6 +24,8 @@
 
 extern crate alloc;
 
+#[macro_use]
+mod console;
 mod bars;
 mod diag;
 mod dma;
@@ -33,6 +35,7 @@ mod hcr;
 mod module;
 mod pci;
 mod snp;
+mod trace;
 
 use alloc::boxed::Box;
 use alloc::vec::Vec;
@@ -166,25 +169,22 @@ unsafe extern "efiapi" fn supported(
     if b.nics.iter().any(|&n| unsafe { (*n).controller } == controller.as_ptr()) {
         return Status::ALREADY_STARTED;
     }
-    let tag = || uefi::println!("stormnic-mlx4: {loc} {VENDOR_MELLANOX:04x}:{device:04x} {name}:");
+    let tag = || alloc::format!("stormnic-mlx4: {loc} {VENDOR_MELLANOX:04x}:{device:04x} {name}");
 
     let snp = OpenProtocolParams { handle: controller, agent, controller: None };
     if boot::test_protocol::<SimpleNetwork>(snp).unwrap_or(false) {
-        tag();
-        uefi::println!("  Supported: already has an SNP, leaving it to the platform's driver");
+        say!("{}: already has an SNP, leaving it to the platform's driver", tag());
         return Status::UNSUPPORTED;
     }
 
     // Claim and immediately release: Supported must leave no trace.
     match open_pci(agent, controller, OpenProtocolAttributes::ByDriver) {
         Ok(_pci) => {
-            tag();
-            uefi::println!("  Supported: yes");
+            trace!("{}: Supported", tag());
             Status::SUCCESS
         }
         Err(e) => {
-            tag();
-            uefi::println!("  Supported: no, PCI I/O is held ({:?})", e.status());
+            say!("{}: not taken, PCI I/O is held ({:?})", tag(), e.status());
             e.status()
         }
     }
@@ -201,7 +201,7 @@ unsafe extern "efiapi" fn start(
     let mut iface: *mut c_void = ptr::null_mut();
     let st = unsafe { (bs.open_protocol)(controller, &PciIo::GUID, &mut iface, agent, controller, OPEN_BY_DRIVER) };
     if st.is_error() {
-        uefi::println!("stormnic-mlx4: Start: cannot claim PCI I/O ({st:?})");
+        say!("stormnic-mlx4: Start: cannot claim PCI I/O ({st:?})");
         return st;
     }
     let close_pci = || {
@@ -215,21 +215,23 @@ unsafe extern "efiapi" fn start(
         return Status::DEVICE_ERROR;
     };
     let name = model(vendor, device).unwrap_or("?");
-    uefi::println!("stormnic-mlx4: {loc} {vendor:04x}:{device:04x} {name}:");
-    uefi::println!("  Start: bound; bringing up the firmware");
+    console::begin();
+    let tag = alloc::format!("stormnic-mlx4: {loc} {vendor:04x}:{device:04x} {name}");
+    trace!("{tag}:");
+    trace!("  Start: bound; bringing up the firmware");
 
     let mut path: *mut c_void = ptr::null_mut();
     let st = unsafe {
         (bs.open_protocol)(controller, &DevicePathProtocol::GUID, &mut path, agent, controller, OPEN_GET_PROTOCOL)
     };
     if st.is_error() {
-        uefi::println!("  Start: the controller has no device path ({st:?}); releasing the NIC");
+        alarm!("{tag}: Start: the controller has no device path ({st:?}); releasing the NIC");
         close_pci();
         return Status::UNSUPPORTED;
     }
 
     let Ok((mut hca, setup)) = fw::open(pci) else {
-        uefi::println!("  Start: firmware bring-up failed, releasing the NIC");
+        alarm!("{tag}: Start: firmware bring-up failed, releasing the NIC");
         close_pci();
         return Status::DEVICE_ERROR;
     };
@@ -237,8 +239,8 @@ unsafe extern "efiapi" fn start(
         Ok(eth) if !eth.ports.is_empty() => eth,
         r => {
             match r {
-                Ok(_) => uefi::println!("  Start: no Ethernet port, releasing the NIC"),
-                Err(_) => uefi::println!("  Start: data path bring-up failed, releasing the NIC"),
+                Ok(_) => say!("{tag}: Start: no Ethernet port, releasing the NIC"),
+                Err(_) => alarm!("{tag}: Start: data path bring-up failed, releasing the NIC"),
             }
             fw::close(hca, pci);
             close_pci();
@@ -261,11 +263,11 @@ unsafe extern "efiapi" fn start(
     for i in 0..n.eth.ports.len() {
         match unsafe { snp::Child::install(nic, i, path.cast(), agent, controller) } {
             Ok(c) => n.children.push(c),
-            Err(_) => uefi::println!("  port {}: no SNP", n.eth.ports[i].num()),
+            Err(_) => alarm!("{tag}: port {}: no SNP", n.eth.ports[i].num()),
         }
     }
     if n.children.is_empty() {
-        uefi::println!("  Start: no SNP installed, releasing the NIC");
+        alarm!("{tag}: Start: no SNP installed, releasing the NIC");
         let n = *unsafe { Box::from_raw(nic) };
         fw::close(n.hca, unsafe { &mut *n.pci });
         close_pci();
@@ -276,7 +278,7 @@ unsafe extern "efiapi" fn start(
     };
     if st.is_error() {
         // Without it the device would keep DMA running into the OS's memory.
-        uefi::println!("  Start: ExitBootServices event: {st:?}; releasing the NIC");
+        alarm!("{tag}: Start: ExitBootServices event: {st:?}; releasing the NIC");
         for c in n.children.iter_mut() {
             c.uninstall(agent, controller);
         }
@@ -286,7 +288,24 @@ unsafe extern "efiapi" fn start(
         return Status::DEVICE_ERROR;
     }
     b.nics.push(nic);
-    uefi::println!("  Start: {} SNP child handle(s) installed", n.children.len());
+    trace!("  Start: {} SNP child handle(s) installed", n.children.len());
+    // The default console output: one line per port (#16).
+    let version = env!("CARGO_PKG_VERSION");
+    for c in &n.children {
+        let p = &n.eth.ports[c.port];
+        let m = p.mac();
+        let link = match (p.link_up(), p.speed()) {
+            (true, "") => "link up".into(),
+            (true, s) => alloc::format!("link up {s}"),
+            (false, _) => "no link".into(),
+        };
+        say!(
+            "stormnic-mlx4 {version}: {} port {}: MAC {:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}, {link}, SNP installed",
+            &tag["stormnic-mlx4: ".len()..],
+            p.num(),
+            m[0], m[1], m[2], m[3], m[4], m[5]
+        );
+    }
     Status::SUCCESS
 }
 
@@ -317,7 +336,7 @@ unsafe extern "efiapi" fn stop(
                 }
             }
         }
-        uefi::println!("stormnic-mlx4: Stop: {} child handle(s) left", n.children.len());
+        trace!("stormnic-mlx4: Stop: {} child handle(s) left", n.children.len());
         return if ok { Status::SUCCESS } else { Status::DEVICE_ERROR };
     }
     if !n.children.is_empty() {
@@ -327,7 +346,7 @@ unsafe extern "efiapi" fn stop(
     let _ = unsafe { (bs.close_event)(n.ebs) };
     b.nics.remove(at);
     let n = *unsafe { Box::from_raw(nic) };
-    uefi::println!("stormnic-mlx4: Stop: tearing the device down");
+    trace!("stormnic-mlx4: Stop: tearing the device down");
     if !n.dead {
         fw::close(n.hca, unsafe { &mut *n.pci });
     }
@@ -349,6 +368,7 @@ unsafe extern "efiapi" fn exit_boot_services(_event: Event, ctx: *mut c_void) {
 #[entry]
 fn main() -> Status {
     uefi::helpers::init().unwrap();
+    console::init();
     let version = env!("CARGO_PKG_VERSION");
     let image = boot::image_handle().as_ptr();
     let b = Box::into_raw(Box::new(Binding {
@@ -369,13 +389,13 @@ fn main() -> Status {
     };
     match r {
         Ok(_) => {
-            uefi::println!(
+            trace!(
                 "stormnic-mlx4 {version}: driver binding installed (15b3:1003 ConnectX-3, 15b3:1007 ConnectX-3 Pro)"
             );
             Status::SUCCESS
         }
         Err(e) => {
-            uefi::println!("stormnic-mlx4 {version}: driver binding not installed: {:?}", e.status());
+            say!("stormnic-mlx4 {version}: driver binding not installed: {:?}", e.status());
             e.status()
         }
     }

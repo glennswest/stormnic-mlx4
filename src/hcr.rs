@@ -107,6 +107,17 @@ pub enum CmdError {
     Pci,
 }
 
+impl core::fmt::Display for CmdError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match *self {
+            CmdError::Status(s) => write!(f, "status {s:#04x}, {}", status_name(s)),
+            CmdError::Timeout => f.write_str("timed out after 60 s"),
+            CmdError::Busy => f.write_str("HCR still pending, not posted"),
+            CmdError::Pci => f.write_str("BAR 0 access failed"),
+        }
+    }
+}
+
 impl CmdError {
     /// True when the device can no longer be trusted to finish commands and
     /// must be reset rather than torn down with more commands.
@@ -126,6 +137,9 @@ pub struct Hcr {
     pub quiet: bool,
     /// Log nothing: the ExitBootServices teardown (6.4).
     pub silent: bool,
+    /// A diagnostic whose failure is not an error (#17): a status is traced,
+    /// not replayed as a failure; the caller reports it.
+    pub optional: bool,
 }
 
 impl Hcr {
@@ -142,20 +156,20 @@ impl Hcr {
                 return Err(Fail::log("mailbox", e.status()));
             }
         };
-        let mut hcr = Hcr { toggle: 1, inbox, outbox, catas: None, quiet: false, silent: false };
+        let mut hcr = Hcr { toggle: 1, inbox, outbox, catas: None, quiet: false, silent: false, optional: false };
         match hcr.read(pci, 0x18) {
             Ok(s) => {
                 let t = (s >> T_SHIFT) & 1;
                 if s & GO == 0 {
                     hcr.toggle = t ^ 1;
                 }
-                uefi::println!(
+                trace!(
                     "  HCR: status dword {s:08x} after reset (GO {}, T {t}); first toggle {}",
                     (s & GO != 0) as u8,
                     hcr.toggle
                 );
             }
-            Err(_) => uefi::println!("  HCR: cannot read the status dword"),
+            Err(_) => say!("  HCR: cannot read the status dword"),
         }
         Ok(hcr)
     }
@@ -248,16 +262,14 @@ impl Hcr {
         }
         match r {
             Ok(_) if self.quiet => {}
-            Ok(_) => uefi::println!("  {} ({in_mod:#x}): ok", op.1),
-            Err(CmdError::Status(s)) => {
-                uefi::println!("  {} ({in_mod:#x}): status {s:#04x}, {}", op.1, status_name(s))
-            }
-            Err(CmdError::Timeout) => {
-                uefi::println!("  {} ({in_mod:#x}): timed out after 60 s", op.1);
+            Ok(_) => trace!("  {} ({in_mod:#x}): ok", op.1),
+            // An optional command's caller reports its own failure (#16).
+            Err(e) if self.optional && !e.needs_reset() => trace!("  {} ({in_mod:#x}): {e}", op.1),
+            Err(e @ CmdError::Timeout) => {
+                alarm!("  {} ({in_mod:#x}): {e}", op.1);
                 self.log_catas(pci);
             }
-            Err(CmdError::Busy) => uefi::println!("  {}: HCR still pending, not posted", op.1),
-            Err(CmdError::Pci) => uefi::println!("  {}: BAR 0 access failed", op.1),
+            Err(e) => alarm!("  {} ({in_mod:#x}): {e}", op.1),
         }
         r
     }
@@ -299,8 +311,8 @@ impl Hcr {
     pub fn log_catas(&self, pci: &mut PciIo) {
         if let Some((bar, off)) = self.catas {
             match pci.mem_read32(bar, off) {
-                Ok(v) => uefi::println!("  catastrophic error buffer: {:08x}", u32::from_be(v)),
-                Err(e) => uefi::println!("  catastrophic error buffer: unreadable ({:?})", e.status()),
+                Ok(v) => say!("  catastrophic error buffer: {:08x}", u32::from_be(v)),
+                Err(e) => say!("  catastrophic error buffer: unreadable ({:?})", e.status()),
             }
         }
     }

@@ -137,16 +137,16 @@ impl Eq {
                     };
                     match (up, ports.iter_mut().find(|p| p.num == num)) {
                         (Some(up), Some(p)) => p.set_link(up),
-                        _ => uefi::println!("  event: port {num} change, subtype {sub:#04x}"),
+                        _ => trace!("  event: port {num} change, subtype {sub:#04x}"),
                     }
                 }
-                0x04 => uefi::println!(
+                0x04 => say!(
                     "  event: CQ {obj:#x} error, {}",
                     if e.u8(0x0f) == 1 { "overrun" } else { "access violation" }
                 ),
-                0x05 | 0x10 | 0x11 => uefi::println!("  event: QP {obj:#x} error, type {kind:#04x}"),
-                0x08 => uefi::println!("  event: local catastrophic error"),
-                _ => uefi::println!("  event: type {kind:#04x} subtype {sub:#04x}, data {obj:#x}"),
+                0x05 | 0x10 | 0x11 => say!("  event: QP {obj:#x} error, type {kind:#04x}"),
+                0x08 => say!("  event: local catastrophic error"),
+                _ => trace!("  event: type {kind:#04x} subtype {sub:#04x}, data {obj:#x}"),
             }
             self.ci = self.ci.wrapping_add(1);
             n += 1;
@@ -217,6 +217,9 @@ pub struct Port {
     num: u8,
     mac: [u8; 6],
     link_up: bool,
+    /// The speed QUERY_PORT reported when it last saw link (3.5), for the
+    /// one-line summary.
+    speed: &'static str,
     uar: u32,
     /// PCI I/O's `BarIndex` for the UAR BAR (`Hca::uar_bar`).
     uar_bar: u8,
@@ -272,7 +275,7 @@ pub fn open(hca: &mut Hca, pci: &mut PciIo, s: &Setup) -> Result<Eth, Fail> {
     for p in &s.ports {
         if is_ethernet(hca, pci, s, p)? {
             let port = port_up(hca, pci, &mut eth.sh, s, p)?;
-            uefi::println!("  port {}: up, link {}", p.num, if port.link_up { "up" } else { "down" });
+            trace!("  port {}: up, link {}", p.num, if port.link_up { "up" } else { "down" });
             eth.ports.push(port);
         }
     }
@@ -308,7 +311,7 @@ impl Eth {
             if core::mem::take(&mut self.ports[i].news) {
                 self.report_link(hca, pci, i);
                 if !self.ports[i].link_up {
-                    self.diagnose(hca, pci, i);
+                    self.diagnose(hca, pci, i, true);
                 }
             }
         }
@@ -316,15 +319,16 @@ impl Eth {
 
     /// The DAC diagnostics of #17 for port `i`: the module EEPROM (5.11)
     /// and the PTYS link modes (5.12), read-only. A firmware that refused
-    /// PTYS once is not asked again.
-    fn diagnose(&mut self, hca: &mut Hca, pci: &mut PciIo, i: usize) {
+    /// PTYS once is not asked again. `loud`: on the console even when quiet
+    /// (a port without link, #16).
+    fn diagnose(&mut self, hca: &mut Hca, pci: &mut PciIo, i: usize, loud: bool) {
         if hca.broken() {
             return;
         }
         let num = self.ports[i].num;
-        diag::module(hca, pci, num);
+        diag::module(hca, pci, num, loud);
         if self.ptys_answers != Some(false) && !hca.broken() {
-            self.ptys_answers = Some(diag::ptys(hca, pci, num, self.ptys_offered));
+            self.ptys_answers = Some(diag::ptys(hca, pci, num, self.ptys_offered, loud));
         }
     }
 
@@ -334,8 +338,13 @@ impl Eth {
         let r = hca.query_port(pci, self.ports[i].num);
         hca.hcr.quiet = false;
         match r {
-            Ok(info) => info.print_link(),
-            Err(_) => uefi::println!("  port {}: QUERY_PORT failed; no link details", self.ports[i].num),
+            Ok(info) => {
+                info.print_link(!info.link_up);
+                if info.link_up {
+                    self.ports[i].speed = info.speed_name();
+                }
+            }
+            Err(_) => say!("  port {}: QUERY_PORT failed; no link details", self.ports[i].num),
         }
     }
 
@@ -351,13 +360,13 @@ impl Eth {
                 }
             }
             if self.ports.iter().all(|p| p.link_up) {
-                uefi::println!("  link up on every Ethernet port after {waited} ms");
+                trace!("  link up on every Ethernet port after {waited} ms");
                 for i in 0..self.ports.len() {
                     self.ports[i].news = false;
                     self.report_link(hca, pci, i);
-                    self.diagnose(hca, pci, i);
+                    self.diagnose(hca, pci, i, false);
                 }
-                diag::speed_control(self.ptys_offered, self.an_rep);
+                diag::speed_control(self.ptys_offered, self.an_rep, false);
                 return;
             }
             if waited >= max_ms {
@@ -365,12 +374,13 @@ impl Eth {
                     self.ports[i].news = false;
                     if !self.ports[i].link_up {
                         let num = self.ports[i].num;
-                        uefi::println!("  port {num}: no link after {} s; reported as no media", max_ms / 1000);
+                        say!("stormnic-mlx4: port {num}: no link after {} s; reported as no media", max_ms / 1000);
                     }
                     self.report_link(hca, pci, i);
-                    self.diagnose(hca, pci, i);
+                    let loud = !self.ports[i].link_up;
+                    self.diagnose(hca, pci, i, loud);
                 }
-                diag::speed_control(self.ptys_offered, self.an_rep);
+                diag::speed_control(self.ptys_offered, self.an_rep, true);
                 return;
             }
             boot::stall(ms(100));
@@ -402,7 +412,7 @@ fn is_ethernet(hca: &mut Hca, pci: &mut PciIo, s: &Setup, p: &PortInfo) -> Resul
     let suggests = if p.b0 & 0x08 != 0 { "Ethernet" } else { "IB" };
     match p.b0 & 3 {
         2 => {
-            uefi::println!("  port {}: type Ethernet (Ethernet-only port; firmware suggestion {suggests} ignored)", p.num);
+            trace!("  port {}: type Ethernet (Ethernet-only port; firmware suggestion {suggests} ignored)", p.num);
             Ok(true)
         }
         3 => {
@@ -414,17 +424,17 @@ fn is_ethernet(hca: &mut Hca, pci: &mut PciIo, s: &Setup, p: &PortInfo) -> Resul
                             2 => "Ethernet",
                             _ => "nothing",
                         };
-                        uefi::println!("  port {}: SENSE_PORT says {what}", p.num);
+                        trace!("  port {}: SENSE_PORT says {what}", p.num);
                     }
                     Err(e) if e.needs_reset() => return hca.cmd(Err(e)),
-                    Err(_) => uefi::println!("  port {}: SENSE_PORT failed", p.num),
+                    Err(_) => trace!("  port {}: SENSE_PORT failed", p.num),
                 }
             }
-            uefi::println!("  port {}: type Ethernet (VPI port, forced; firmware suggests {suggests})", p.num);
+            trace!("  port {}: type Ethernet (VPI port, forced; firmware suggests {suggests})", p.num);
             Ok(true)
         }
         _ => {
-            uefi::println!("  port {}: not Ethernet-capable (QUERY_PORT byte 0 {:#04x}); skipped", p.num, p.b0);
+            say!("  port {}: not Ethernet-capable (QUERY_PORT byte 0 {:#04x}); skipped", p.num, p.b0);
             Ok(false)
         }
     }
@@ -453,7 +463,7 @@ fn shared(hca: &mut Hca, pci: &mut PciIo, s: &Setup) -> Result<Shared, Fail> {
         return Err(fail!("queues of {RX_ENTRIES} entries exceed the device's limits; stopping"));
     }
     let mut mtt = Mtt { mem: hca.mtt_mem(), entry: 8, next: s.prof.first_free_mtt, end: t[fw::MTT].count };
-    uefi::println!("  objects: PD {pd:#x}, UAR page {uar:#x}, EQ {eqn:#x}, first MTT {}", mtt.next);
+    trace!("  objects: PD {pd:#x}, UAR page {uar:#x}, EQ {eqn:#x}, first MTT {}", mtt.next);
 
     // 4.6: the EQ, every entry hardware-owned for the first pass.
     let mem = hca.lend(pci, "EQ", EQ_ENTRIES as usize * EQE)?;
@@ -477,7 +487,7 @@ fn shared(hca: &mut Hca, pci: &mut PciIo, s: &Setup) -> Result<Shared, Fail> {
         Err(e) if e.needs_reset() => return hca.cmd(Err(e)),
         // Linux only warns (4.6); link state is then polled with QUERY_PORT.
         Err(_) => {
-            uefi::println!("  MAP_EQ failed: no port events, polling QUERY_PORT only");
+            say!("  MAP_EQ failed: no port events, polling QUERY_PORT only");
             false
         }
     };
@@ -507,7 +517,7 @@ fn shared(hca: &mut Hca, pci: &mut PciIo, s: &Setup) -> Result<Shared, Fail> {
     hca.cmd(r)?;
     hca.push_undo(hcr::HW2SW_MPT, 1, mpt, 0);
     let lkey = mpt.rotate_left(8);
-    uefi::println!("  memory region: MPT {mpt:#x}, L_Key {lkey:#010x}");
+    trace!("  memory region: MPT {mpt:#x}, L_Key {lkey:#010x}");
 
     let counters = cap.flag(48);
     Ok(Shared {
@@ -540,7 +550,7 @@ fn port_up(hca: &mut Hca, pci: &mut PciIo, sh: &mut Shared, s: &Setup, p: &PortI
     if u64::from(rx_qpn.max(tx_qpn)) >= t[fw::QPC].count || u64::from(tx_cqn) >= t[fw::CQC].count {
         return Err(fail!("port {}: QP/CQ numbers outside the profile; stopping", p.num));
     }
-    uefi::println!(
+    trace!(
         "  port {}: MAC {}, MTU cap {}, RX QP {rx_qpn:#x} CQ {rx_cqn:#x}, TX QP {tx_qpn:#x} CQ {tx_cqn:#x}, {} steering",
         p.num,
         Mac(p.mac),
@@ -622,6 +632,7 @@ fn port_up(hca: &mut Hca, pci: &mut PciIo, sh: &mut Shared, s: &Setup, p: &PortI
         num: p.num,
         mac: p.mac,
         link_up: p.link_up,
+        speed: "",
         uar: sh.uar,
         uar_bar: hca.uar_bar,
         lkey: sh.lkey,
@@ -830,7 +841,7 @@ fn attach(hca: &mut Hca, pci: &mut PciIo, sh: &mut Shared, port: u8, mac: [u8; 6
         let r = hca.hcr.with_in(pci, hcr::WRITE_MCG, 0, prev);
         hca.cmd(r)?;
     }
-    uefi::println!(
+    trace!(
         "  steering: {} {} -> QP {qpn:#x} (MCG entry {at:#x}, hash {hash:#x})",
         if unicast { "unicast" } else { "multicast" },
         Mac(mac)
@@ -851,9 +862,14 @@ impl Port {
         self.link_up
     }
 
+    /// The speed last seen with link, or "" (`report_link`).
+    pub fn speed(&self) -> &'static str {
+        self.speed
+    }
+
     fn set_link(&mut self, up: bool) {
         if up != self.link_up {
-            uefi::println!("stormnic-mlx4: port {}: link {}", self.num, if up { "up" } else { "down" });
+            say!("stormnic-mlx4: port {}: link {}", self.num, if up { "up" } else { "down" });
             self.link_up = up;
             self.news = true;
         }
@@ -865,7 +881,7 @@ impl Port {
         loop {
             let e = self.rx_cq.peek()?;
             if e.u8(0x1f) & 0x1f == CQE_ERROR {
-                uefi::println!(
+                say!(
                     "  port {} rx: error completion, syndrome {:#04x} (vendor {:#04x})",
                     self.num,
                     e.u8(0x1b),
@@ -902,7 +918,7 @@ impl Port {
         while let Some(e) = self.tx_cq.peek() {
             if e.u8(0x1f) & 0x1f == CQE_ERROR {
                 self.tx_broken = true;
-                uefi::println!(
+                say!(
                     "  port {} tx: error completion, syndrome {:#04x} (vendor {:#04x}); the TX QP is now in error",
                     self.num,
                     e.u8(0x1b),
@@ -974,7 +990,7 @@ impl Port {
         // 4.8.6: QPN << 8, big-endian, at UAR + 0x14.
         let off = u64::from(self.uar) * PAGE as u64 + 0x14;
         pci.mem_write32(self.uar_bar, off, (self.tx_qpn << 8).to_be()).map_err(|e| {
-            uefi::println!("  port {} tx: doorbell write failed ({:?})", self.num, e.status());
+            say!("  port {} tx: doorbell write failed ({:?})", self.num, e.status());
             Send::Broken
         })
     }

@@ -20,14 +20,14 @@ pub struct Fail;
 
 impl Fail {
     pub fn log(what: &str, status: Status) -> Fail {
-        uefi::println!("  {what}: {status:?}");
+        alarm!("  {what}: {status:?}");
         Fail
     }
 }
 
 macro_rules! fail {
     ($($t:tt)*) => {{
-        uefi::println!("  {}", format_args!($($t)*));
+        alarm!("  {}", format_args!($($t)*));
         $crate::fw::Fail
     }};
 }
@@ -118,7 +118,7 @@ fn claim(pci: &mut PciIo) -> Result<(), Fail> {
     if v != 0 {
         return Err(fail!("ownership semaphore reads {:08x}: another function or driver owns the device; leaving it", u32::from_be(v)));
     }
-    uefi::println!("  ownership semaphore read 0: claimed");
+    trace!("  ownership semaphore read 0: claimed");
     Ok(())
 }
 
@@ -130,15 +130,15 @@ fn release(pci: &mut PciIo, wait: bool) {
             if wait {
                 boot::stall(ms(1000));
             }
-            uefi::println!("  ownership released");
+            trace!("  ownership released");
         }
-        Err(e) => uefi::println!("  ownership release: {:?}", e.status()),
+        Err(e) => say!("  ownership release: {:?}", e.status()),
     }
 }
 
 fn restore(pci: &mut PciIo, original: u64) {
     if let Err(e) = pci.set_attributes(original) {
-        uefi::println!("  restoring PCI attributes {original:#x}: {:?}", e.status());
+        say!("  restoring PCI attributes {original:#x}: {:?}", e.status());
     }
 }
 
@@ -163,7 +163,7 @@ fn start(pci: &mut PciIo, original: u64) -> Result<(Hca, Setup), Fail> {
     };
     match hca.bring_up(pci) {
         Ok(setup) => {
-            uefi::println!("  firmware bring-up complete");
+            trace!("  firmware bring-up complete");
             Ok((hca, setup))
         }
         Err(f) => {
@@ -178,8 +178,8 @@ fn start(pci: &mut PciIo, original: u64) -> Result<(Hca, Setup), Fail> {
 fn uar_bar(pci: &mut PciIo) -> Result<bars::Pick, Fail> {
     let pick = pci.find_bar(UAR_REG).map_err(|e| Fail::log("UAR BAR: config read", e.status()))?;
     match pick.size {
-        Some(size) => uefi::println!("  UAR BAR (register {UAR_REG}): BarIndex {}, {size:#x} bytes; {}", pick.index, pick.how.describe()),
-        None => uefi::println!("  UAR BAR (register {UAR_REG}): BarIndex {}, size unknown; {}", pick.index, pick.how.describe()),
+        Some(size) => trace!("  UAR BAR (register {UAR_REG}): BarIndex {}, {size:#x} bytes; {}", pick.index, pick.how.describe()),
+        None => trace!("  UAR BAR (register {UAR_REG}): BarIndex {}, size unknown; {}", pick.index, pick.how.describe()),
     }
     Ok(pick)
 }
@@ -248,7 +248,7 @@ fn reset(pci: &mut PciIo) -> Result<(), Fail> {
         }
     }
     let _ = pci.write_config32(0x04, saved[1]);
-    uefi::println!("  reset: done (semaphore after {waited} ms), config space restored");
+    trace!("  reset: done (semaphore after {waited} ms), config space restored");
     Ok(())
 }
 
@@ -340,9 +340,10 @@ impl PortInfo {
     }
 
     /// Print what QUERY_PORT says about the link and the module (3.5, 5.8),
-    /// so a port without link can be matched to the switch side.
-    pub fn print_link(&self) {
-        uefi::println!(
+    /// so a port without link can be matched to the switch side. `loud`:
+    /// on the console even when quiet (a port without link, #16).
+    pub fn print_link(&self, loud: bool) {
+        note!(loud, 
             "  port {}: link {}, speed code {:#04x} ({}{}), autoneg {}, {}",
             self.num,
             if self.link_up { "up" } else { "down" },
@@ -353,10 +354,11 @@ impl PortInfo {
             if self.an_complete { "complete" } else { "not complete" }
         );
         if self.xcvr == 0 && self.wavelength == 0 && self.xcvr_code == 0 {
-            uefi::println!("  port {}: module: no transceiver information (none plugged, or not readable)", self.num);
+            note!(loud, "  port {}: module: no transceiver information (none plugged, or not readable)", self.num);
         } else {
             let oui = self.xcvr & 0xff_ffff;
-            uefi::println!(
+            note!(
+                loud,
                 "  port {}: module: transceiver type {:#04x}, vendor OUI {:02x}:{:02x}:{:02x}, wavelength {}, code {:#018x}",
                 self.num,
                 self.xcvr >> 24,
@@ -533,7 +535,7 @@ impl Hca {
 
         // 3.2: lend the firmware its memory, then start it.
         let fa = DmaBuf::new(pci, fw.pages as usize * PAGE).map_err(|e| Fail::log("FW area", e.status()))?;
-        uefi::println!("  FW area: {} KiB at {:#x}", fa.len() / 1024, fa.dev);
+        trace!("  FW area: {} KiB at {:#x}", fa.len() / 1024, fa.dev);
         let fa = self.fa.insert(fa);
         let r = map_pages(&mut self.hcr, pci, hcr::MAP_FA, None, fa);
         self.cmd(r)?;
@@ -557,9 +559,9 @@ impl Hca {
                 ports.push(self.query_port(pci, port)?);
             }
         } else {
-            uefi::println!("  command interface revision 2: QUERY_PORT not used");
+            trace!("  command interface revision 2: QUERY_PORT not used");
         }
-        uefi::println!(
+        trace!(
             "  steering: {} (VEP_UC_STEER {}, VEP_MC_STEER {})",
             if cap.b0() { "B0" } else { "A0" },
             cap.flag(41) as u8,
@@ -571,7 +573,7 @@ impl Hca {
         // 3.8: firmware's auxiliary memory for this ICM size.
         let r = self.hcr.imm(pci, hcr::SET_ICM_SIZE, 0, 0, prof.total);
         let aux_pages = self.cmd(r)?;
-        uefi::println!("  SET_ICM_SIZE {:#x}: firmware asks for {aux_pages} auxiliary pages", prof.total);
+        trace!("  SET_ICM_SIZE {:#x}: firmware asks for {aux_pages} auxiliary pages", prof.total);
         let aux = DmaBuf::new(pci, aux_pages as usize * PAGE).map_err(|e| Fail::log("aux pages", e.status()))?;
         let aux = self.aux.insert(aux);
         let r = map_pages(&mut self.hcr, pci, hcr::MAP_ICM_AUX, None, aux);
@@ -588,7 +590,7 @@ impl Hca {
             cap.rsvd_eqs = u64::from(o.be16(0x04));
             cap.max_eqs = u64::from(o.be16(0x06));
             cap.rsvd_uars = u64::from(o.u8(0x0b) & 0xf);
-            uefi::println!(
+            trace!(
                 "  QUERY_FUNC: reserved EQs {}, max EQs {}, reserved UARs {}",
                 cap.rsvd_eqs, cap.max_eqs, cap.rsvd_uars
             );
@@ -615,12 +617,12 @@ impl Hca {
         // whose BarIndex the firmware decides (#15).
         let catas_reg = (o.u8(0x3c) >> 6) * 2;
         let catas_bar = if usize::from(catas_reg) == UAR_REG { self.uar_bar } else { catas_reg };
-        uefi::println!(
+        trace!(
             "  firmware {major}.{minor}.{subminor}, command interface revision {rev}, PPF {}, log max commands {}",
             o.u8(0x09),
             o.u8(0x0f)
         );
-        uefi::println!(
+        trace!(
             "  FW area {pages} pages; catastrophic error buffer BAR {catas_bar} + {catas_off:#x}, {catas_size} dwords"
         );
         self.hcr.catas = Some((catas_bar, catas_off));
@@ -640,7 +642,7 @@ impl Hca {
             for i in line..(line + 0x20).min(0xa8) {
                 let _ = write!(s, " {:02x}", o.u8(i));
             }
-            uefi::println!("  DEV_CAP {line:02x}:{s}");
+            trace!("  DEV_CAP {line:02x}:{s}");
         }
         let lg = |off: usize, mask: u8| 1u64 << (o.u8(off) & mask);
         let num_sys_eqs = u64::from(o.be16(0x26) & 0xfff);
@@ -679,18 +681,18 @@ impl Hca {
             max_icm: o.be64(0xa0),
         };
         let log_min_page = o.u8(0x4b);
-        uefi::println!(
+        trace!(
             "  DEV_CAP: {} ports, flags {:016x}, flags2 {flags2:08x}, BMME {:08x}, max ICM {:#x}",
             cap.ports, cap.flags, cap.bmme, cap.max_icm
         );
-        uefi::println!(
+        trace!(
             "  reserved: QPs {}, SRQs {}, CQs {}, EQs {} (max {}, sys {}), MTTs {}, MPTs {}, UARs {rsvd_uars}, PDs {}",
             cap.rsvd_qps, cap.rsvd_srqs, cap.rsvd_cqs, cap.rsvd_eqs, cap.max_eqs, num_sys_eqs, cap.rsvd_mtts, cap.rsvd_mpts,
             cap.rsvd_pds
         );
-        uefi::println!("  log max: WQEs per QP {}, CQEs per CQ {}", cap.log_max_qp_wqes, cap.log_max_cqes);
-        uefi::println!("  SW_CQ_INIT {}, LB_SRC_CHK {}", (flags2 >> 23) & 1, (flags2 >> 19) & 1);
-        uefi::println!(
+        trace!("  log max: WQEs per QP {}, CQEs per CQ {}", cap.log_max_qp_wqes, cap.log_max_cqes);
+        trace!("  SW_CQ_INIT {}, LB_SRC_CHK {}", (flags2 >> 23) & 1, (flags2 >> 19) & 1);
+        trace!(
             "  ETH_PROT_CTRL {} (0x7a {:#04x}), ETH_BACKPL_AN_REP {} (0x9c {:08x})",
             cap.eth_prot_ctrl as u8,
             o.u8(0x7a),
@@ -714,8 +716,8 @@ impl Hca {
             Some(size) if cap.uar_bytes > size => {
                 return Err(fail!("UAR area {:#x} is larger than the UAR BAR ({size:#x}); stopping", cap.uar_bytes))
             }
-            Some(size) => uefi::println!("  UAR area {:#x} ({uar_pages} pages), UAR BAR (index {bar}) {size:#x}", cap.uar_bytes),
-            None => uefi::println!("  UAR area {:#x} ({uar_pages} pages); UAR BAR (index {bar}) size unknown", cap.uar_bytes),
+            Some(size) => trace!("  UAR area {:#x} ({uar_pages} pages), UAR BAR (index {bar}) {size:#x}", cap.uar_bytes),
+            None => trace!("  UAR area {:#x} ({uar_pages} pages); UAR BAR (index {bar}) size unknown", cap.uar_bytes),
         }
         Ok(cap)
     }
@@ -736,17 +738,17 @@ impl Hca {
             _ => "none",
         };
         let mac: [u8; 6] = core::array::from_fn(|i| o.u8(0x12 + i));
-        uefi::println!(
+        trace!(
             "  port {port}: supports {types}, suggests {}, MTU cap {}, log max MACs {}",
             if b0 & 0x08 != 0 { "Ethernet" } else { "IB" },
             o.be16(0x02),
             o.u8(0x0a) & 0xf
         );
-        uefi::println!(
+        trace!(
             "  port {port}: MAC {:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
             mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]
         );
-        info.print_link();
+        info.print_link(false);
         Ok(info)
     }
 
@@ -792,7 +794,7 @@ impl Hca {
             whole(MCG),
         ];
         let total: u64 = ranges.iter().map(|r| r.2).sum();
-        uefi::println!("  MAP_ICM: {} ranges, {} KiB of host memory", ranges.len(), total / 1024);
+        trace!("  MAP_ICM: {} ranges, {} KiB of host memory", ranges.len(), total / 1024);
         for (name, virt, bytes) in ranges {
             let buf = DmaBuf::new(pci, bytes as usize).map_err(|e| Fail::log(name, e.status()))?;
             let r = map_pages(&mut self.hcr, pci, hcr::MAP_ICM, Some(virt), &buf);
@@ -802,7 +804,7 @@ impl Hca {
             }
             self.icm.push(Icm { virt, buf });
             if r.is_err() {
-                uefi::println!("  MAP_ICM {name} at {virt:#x} failed");
+                alarm!("  MAP_ICM {name} at {virt:#x} failed");
             }
             self.cmd(r)?;
         }
@@ -855,7 +857,7 @@ impl Hca {
         m.set_be64(0x108, t[CMPT].base);
         m.set_u8(0x12a, log2(cap.uar_bytes / PAGE as u64) as u8);
         m.set_u8(0x12b, 0);
-        uefi::println!("  INIT_HCA: flags {flags:#x}, log EQs {log_eqs:#x}, memory windows {}", windows as u8);
+        trace!("  INIT_HCA: flags {flags:#x}, log EQs {log_eqs:#x}, memory windows {}", windows as u8);
         let r = self.hcr.with_in(pci, hcr::INIT_HCA, 0, 0);
         self.cmd(r)?;
         self.open = true;
@@ -872,7 +874,7 @@ impl Hca {
         let topspin = o.be16(VSD) == 0x05ad && o.be16(VSD + 0xde) == 0x05ad;
         let byte = |i: usize| if topspin { o.u8(VSD + 0x20 + i) } else { o.u8(VSD + 0xd0 + (i & !3) + (3 - (i & 3))) };
         let id: String = (0..16).map(byte).take_while(|&b| b != 0).map(|b| if b.is_ascii_graphic() { b as char } else { '?' }).collect();
-        uefi::println!("  board ID: {id}");
+        trace!("  board ID: {id}");
     }
 
     /// Take back the data path's objects, then CLOSE_HCA, UNMAP_ICM (reverse
@@ -908,10 +910,10 @@ impl Hca {
     fn teardown(mut self, pci: &mut PciIo) -> bool {
         let ok = self.stop_firmware(pci);
         if !ok {
-            uefi::println!("  teardown by command failed; resetting the device instead");
+            say!("  teardown by command failed; resetting the device instead");
             if reset(pci).is_err() {
                 // The firmware may still own this memory: leave it allocated.
-                uefi::println!("  device did not reset; its memory stays allocated");
+                say!("  device did not reset; its memory stays allocated");
                 core::mem::forget(self);
                 return false;
             }
@@ -933,7 +935,7 @@ impl Hca {
             }
             self.hcr.free(pci);
         }
-        uefi::println!("  firmware stopped, memory returned");
+        trace!("  firmware stopped, memory returned");
         ok
     }
 }
@@ -981,14 +983,14 @@ fn profile(cap: &DevCap) -> Result<Profile, Fail> {
         total += t[i].bytes;
     }
     for &i in &order {
-        uefi::println!(
+        trace!(
             "  ICM {:<6} {:#011x}: {} x {} bytes",
             NAMES[i], t[i].base, t[i].count, t[i].entry
         );
     }
-    uefi::println!("  ICM total {total:#x}; base special QPN {base_sqpn:#x}, first free MTT {first_free_mtt}");
+    trace!("  ICM total {total:#x}; base special QPN {base_sqpn:#x}, first free MTT {first_free_mtt}");
     if cap.rsvd_eqs >= t[EQC].count {
-        uefi::println!("  note: reserved EQs {} leave no EQ in a {}-entry table (#3)", cap.rsvd_eqs, t[EQC].count);
+        say!("  note: reserved EQs {} leave no EQ in a {}-entry table (#3)", cap.rsvd_eqs, t[EQC].count);
     }
     if total > cap.max_icm {
         return Err(fail!("ICM total {total:#x} exceeds the device's {:#x}; stopping", cap.max_icm));
