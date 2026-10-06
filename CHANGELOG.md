@@ -4,6 +4,9 @@
 
 <!-- New unreleased changes go here -->
 
+### 2026-10-06
+- **docs:** Spec §7.1 records HW-checks 1–14 on the X9 blades' ConnectX-3 (firmware 2.30.8000), from the server3 and server8 rustnic boots at v0.2.1. Those boots also show RX, a DHCP lease, and a boothost claim and NVMe/TCP attach through this driver. Item 14 (own-frame loopback) is not visible on the console and moves to #21 (#18).
+
 ### 2026-10-04
 - **docs:** Documentation refreshed from the code. README: stormbootx runs smoltcp over the SNP (not the firmware's TCP4) and opens it `EXCLUSIVE`; shipping pin is `cf37f8b` (v0.2.1, v0.2.2 in stormbootx#66) and the hardware check is `tcp4 : smoltcp over SNP` plus `port N rx:` (#19); status says #1–#4 were checked on server3/server1 with RX and §7 still open (#18, #12); console sample shows 0.2.2. CLAUDE.md: shipping and Test sections updated (blade boots are the master's job, not `needs-owner`; host tests), work plan collapsed to done/open with the remaining hardware work on #18, #12, #17/#20 (#14). No code change.
 

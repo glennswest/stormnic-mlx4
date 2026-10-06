@@ -1932,6 +1932,41 @@ command's status).
     driver then loads cleanly; also the reset-only fallback.
 16. **L_Key collision with 0x100** (4.3): reserved MPT count on the card.
 
+### 7.1 Results on the X9 blades
+
+Recorded 2026-10-06 for #18, from the stormcentral SOL captures of rustnic boots of stormbootx
+(`media : rustnic ixgbe@563ea8d mlx4@cf37f8b`, stormnic-mlx4 v0.2.1). The boots are on **server3**
+(service tag ZM142S026204, MAC f4:52:14:84:86:f0, eight boots 2026-10-02..04) and **server8**
+(ZM142S026213, MAC f4:52:14:84:ae:30, 2026-10-05). Both cards are the same: ConnectX-3 15b3:1003,
+board MT_1170110023, firmware 2.30.8000, one port, identical QUERY_DEV_CAP bytes. Every boot gave the
+same answers. With link up, every boot completed bring-up, installed the SNP, sent and received frames,
+and got a DHCP lease through the ConnectX-3. On server3 the boot also reached the boothost over that NIC,
+claimed its image and attached it over NVMe/TCP. No boot logged an `event:` line or an RX or TX error
+completion.
+
+The RX path is answered too: `port 1 rx:` lines show broadcast frames (ARP, DHCP offer and ack) and
+unicast to the port MAC (ARP replies, TCP), received through MCG entries.
+
+| # | Result | Evidence (console) |
+|---|---|---|
+| 1 | **Confirmed.** T reads 0 after reset, so `toggle` starts at 1. The "read T, set toggle = NOT T" rule works for every command. | `HCR: status dword 26451463 after reset (GO 0, T 0); first toggle 1`, then every command `ok` |
+| 2 | **Confirmed.** The ownership semaphore reads 0 the first time and the driver owns the device. The reset semaphore reads 0 at once and is never written back. The device returns, and the next boot claims both semaphores the same way. | `ownership semaphore read 0: claimed`; `reset: done (semaphore after 0 ms)` |
+| 3 | **Confirmed: revision 3.** | `firmware 2.30.8000, command interface revision 3, PPF 0, log max commands 4` |
+| 4 | **Accepted.** The profile has 1024 QPs, 256 CQs, 512 dMPTs and 1024 EQ contexts (`log EQs 0x1f`, SYS_EQS mode, 3.11). INIT_HCA succeeds with that profile and with 1456 KiB of ICM. QUERY_FUNC reports 28 reserved EQs and a maximum of 156, so the driver's EQ is 0x1c. | `ICM … lines`, `INIT_HCA: flags 0x2019, log EQs 0x1f`, `INIT_HCA (0x0): ok`, `QUERY_FUNC: reserved EQs 28, max EQs 156` |
+| 5 | **Confirmed.** The card reports SW_CQ_INIT 0, so SW2HW_CQ uses op_mod 0 and the driver stamps the owner bits again afterwards (4.7). Nothing spurious follows SW2HW_EQ or SW2HW_CQ: there are no `event:` lines, and no error completion or stray frame appears. | `SW_CQ_INIT 0, LB_SRC_CHK 1`; `SW2HW_EQ (0x1c): ok`, `SW2HW_CQ (0x80)/(0x81): ok` |
+| 6 | **Confirmed: 32-byte entries.** INIT_HCA byte 0x58 is left 0. The driver reads CQEs and EQEs at a 32-byte stride, and it reads correct frame lengths and port-change events at that stride. | frame lengths in `rx:` lines; `port 1: link up` from the port-change EQE |
+| 7 | **B0, with both VEP flags set.** Unicast and broadcast both arrive through MCG entries. The promiscuous write is not answered: this driver never issues WRITE_MCG op_mod 1, because the SNP filters in software and needs no promiscuous QP. | `steering: B0 (VEP_UC_STEER 1, VEP_MC_STEER 1)`; `steering: unicast … -> QP 0x280 (MCG entry 0x57)`, `multicast ff:ff:ff:ff:ff:ff -> QP 0x280 (MCG entry 0x7d)`; `rx:` lines to the port MAC and to ff:ff:ff:ff:ff:ff |
+| 8 | **Issued and accepted. Not tested without it.** The driver always sends CONF_SPECIAL_QP, as Linux does. Finding out whether it is needed would take an image without it, and nothing calls for that. | `CONF_SPECIAL_QP (0x200): ok` |
+| 9 | **The counters-enabled case works.** The card offers counters (DEV_CAP flag 48), INIT_HCA enables them (flags bit 4), and both QPs use counter index port − 1 = 0. The counters-disabled case (index 0xff) is not reachable on this card. | `INIT_HCA: flags 0x2019`; `RST2INIT/INIT2RTR/RTR2RTS_QP (0x280)/(0x300): ok`; frames move |
+| 10 | **Confirmed.** The TX QP has rq_size_stride 0 and no extra buffer, and it reaches RTS. It sends DHCP, ARP and TCP with no QP error event and no error completion. | `RTR2RTS_QP (0x300): ok`; `tx:` lines; no `event:` lines |
+| 11 | **Direct ICM writes work.** Every EQ, CQ and QP buffer is reached only through MTT entries that the driver writes straight into the MTT table's ICM (4.2), and the device uses all of them. WRITE_MTT is never issued, so whether the native firmware offers it is not answered. | `first free MTT 64`; events, completions and frames as above |
+| 12 | **Ethernet-only.** QUERY_PORT supports Ethernet but suggests IB. The driver ignores the suggestion (5.1, owner on #15) and the port runs as Ethernet. | `port 1: link down, supports Ethernet, suggests IB, MTU cap 9600, speed code 0x0f, log max MACs 7`; `port 1: type Ethernet (Ethernet-only port; firmware suggestion IB ignored)` |
+| 13 | **1.7–2.1 s** from INIT_PORT and steering setup to link up, measured with a 100 ms poll. server3 took 2000 ms on 11 boots and 2100 ms on one; server8 took 1700–2100 ms. The 5 s link wait (`LINK_WAIT_MS`) leaves enough room. Boots with no link at all (#15, the DAC fixes) are not counted. | `link up on every Ethernet port after 2000 ms` |
+| 14 | **Not observable at v0.2.1.** LB_SRC_CHK is 1 and counters are on, so the RX QP sets the loopback source check (5.10). But the SNP drops frames whose source is the port's own MAC before it logs anything, so the console cannot show whether the adapter loops them back. v0.2.3 logs the first such frame; the answer comes from the next boot at that pin (#21). | `SW_CQ_INIT 0, LB_SRC_CHK 1`; no `rx:` line from the port's own MAC |
+
+Items 15 and 16 are tracked in #12. For 16, the console already shows `memory region: MPT 0x100,
+L_Key 0x00010000` with 256 reserved MPTs, so the L_Key does not collide with the padding L_Key 0x100.
+
 ---
 
 ## Appendix A. Command opcodes
