@@ -5,6 +5,9 @@
 <!-- New unreleased changes go here -->
 
 ### 2026-10-06
+- **docs:** README status and pin updated: RX and a lease are on record on server3 and server8, §7.1 holds the HW-check results, and stormbootx#66 now asks for v0.2.3. Work plan: #18 done, #21 open (#18).
+
+### 2026-10-06
 - **feat:** The SNP logs the first frame from the port's own MAC that the adapter loops back, before it drops it (`port N rx: own frame looped back …`). This lets the console answer spec §7 item 14 (#21).
 - **docs:** Spec §7.1 records HW-checks 1–14 on the X9 blades' ConnectX-3 (firmware 2.30.8000), from the server3 and server8 rustnic boots at v0.2.1. Those boots also show RX, a DHCP lease, and a boothost claim and NVMe/TCP attach through this driver. Item 14 (own-frame loopback) is not visible on the console and moves to #21 (#18).
 

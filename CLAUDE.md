@@ -44,7 +44,7 @@ No standalone component golden. The owner approved shipping inside stormbootx's
 the mlx4 integration: `scripts/build-nic-drivers.sh` builds this crate at the
 pin, and the `stormbootx-rustnic` media (`STORMNIC_ON_MEDIA="ixgbe mlx4"`)
 carries it with no iPXE. The pin is `cf37f8b` (v0.2.1) as of 2026-10-04;
-stormbootx#66 asks for v0.2.2. `--drivers DIR` is the manual media assembly
+stormbootx#66 asks for v0.2.3 (`0e50017`). `--drivers DIR` is the manual media assembly
 interface, not a way to retain an sc-build artifact. sc-build keeps no image.
 The media/golden work belongs to stormbootx; do not create a persistent build
 checkout or copy artifacts out of sc-build.
@@ -80,16 +80,15 @@ Done (history in git and CHANGELOG.md):
   and server1 link-ok at 10G (DAC on the CRS326 sfp-sfpplus1, fixed 10G). RX and a lease were not seen (#18).
 - [x] #9 `Cargo.lock` committed, builds `--locked`.
 - [x] #10 `docs/spec/connectx3.md` (the only source; BSD notice in `NOTICE`).
+- [x] #18 RX, a DHCP lease and an NVMe/TCP claim through the ConnectX-3 (server3 and server8 rustnic boots, v0.2.1,
+  2026-10-02..05). Spec §7.1 records HW-checks 1–13; item 14 split to #21 (v0.2.3).
 - [x] #15 UAR `BarIndex` from `GetBarAttributes` (v0.2.1), VPI ports forced to Ethernet, link/module
   diagnostics at link wait and link changes (v0.2.2). v0.2.2 pin requested in stormbootx#66.
 
 Open:
 
-- [ ] #18 RX through this driver on metal, and spec section 7 HW-checks 1–14 recorded. RX, lease and claim are on
-  the SOL logs of server3 (8 boots, 2026-10-02..04) and server8 (2026-10-05), at v0.2.1. In progress (2026-10-06):
-  record items 1–13 from those logs in spec §7.1 and on #18. Item 14 (own-frame loopback) cannot be read there,
-  because `wanted()` drops own frames before `log_frame`; v0.2.3 logs the first one. Item 14 goes to its own issue
-  for the next boot at the new pin, then #18 closes.
+- [ ] #21 §7 item 14 (own-frame loopback): v0.2.3 logs the first looped-back own frame; answered by the first
+  rustnic boot at a pin with v0.2.3 (asked in stormbootx#66, `0e50017`). Record the result in spec §7.1.
 - [ ] #12 §7 items 15 (OS hand-off, `mlx4_core` probe after ExitBootServices) and 16 (`memory region: MPT …, L_Key …`,
   already on the server3 console).
 - [ ] #17 / #20 DAC link diagnostics beyond spec 3.5 (module EEPROM, PTYS speed masks, forced speed): spec first (#20).

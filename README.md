@@ -108,8 +108,8 @@ stormbootx's `scripts/build-nic-drivers.sh` (stormbootx#34). The
 no iPXE; the normal stormbootx media does not carry it. This repository has no
 standalone component golden, and sc-build retains no artifacts.
 
-The pin is `cf37f8b` (v0.2.1) as of 2026-10-04; stormbootx#66 asks for v0.2.2
-(the link and module lines). A boot of the rustnic media is the hardware
+The pin is `cf37f8b` (v0.2.1) as of 2026-10-06; stormbootx#66 asks for v0.2.3
+(`0e50017`: the link and module lines, and the own-frame line for spec 7 item 14). A boot of the rustnic media is the hardware
 check: stormbootx prints `tcp4 : smoltcp over SNP (...)` with this driver's
 `port N SNP: initialized` and `port N rx:` lines behind it. The master handles
 the media boot and console capture.
@@ -120,9 +120,11 @@ Driver binding (#1), the firmware command interface (#2), the Ethernet data
 path (#3) and the SNP (#4) are done and were checked on metal on 2026-10-01:
 on server3 (X9, AMI Aptio 4, v0.2.1) every command through INIT_HCA, port
 bring-up, steering, the SNP and a transmitted DHCP discover; on server1 the
-ConnectX-3 reached link at 10G. A received frame and a lease through this
-driver have not been seen yet (#18), nor are the spec's section 7 hardware
-checks recorded (#18, #12).
+ConnectX-3 reached link at 10G. From 2026-10-02, rustnic boots of server3 and
+server8 at v0.2.1 receive through this driver. They get a DHCP lease, and on
+server3 also claim and attach the boot image over it. Spec section 7.1 records
+hardware checks 1–13 from those boots (#18). Item 14 waits for a boot at v0.2.3
+(#21), and items 15–16 are #12.
 The image is an EFI boot-service driver (`build.rs` sets the PE subsystem;
 `scripts/pe-subsystem.sh IMAGE` checks it is 11). Its entry point installs
 `EFI_DRIVER_BINDING_PROTOCOL` and returns.
