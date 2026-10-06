@@ -53,6 +53,11 @@ sc-build 'cargo build --locked --release --target x86_64-unknown-uefi && scripts
 (`sc-build 'cargo update -p uefi && cat Cargo.lock'`, then commit the result)
 and note it in the changelog.
 
+A verbose image, which prints the whole bring-up trace on every boot, is
+`--features verbose` on the same command
+(`sc-build 'cargo build --locked --release --target x86_64-unknown-uefi --features verbose'`).
+The shipped image is the default build. Use the variable to make it verbose.
+
 ## Interfaces and configuration
 
 - **Installs:** `EFI_DRIVER_BINDING_PROTOCOL` on its own image handle
@@ -90,15 +95,21 @@ and note it in the changelog.
   the firmware suggests (spec 5.1 has no command that sets the type; the port
   is driven with the Ethernet SET_PORT forms and Ethernet QPs). The console
   says `port N: type Ethernet (...)` and why.
-- **Configuration:** none. No options, variables, ports or files are read; the
-  PCI IDs it takes are compiled in (`DEVICES` in `src/main.rs`).
+- **Configuration:** one switch, console output only (#16, see "Console
+  output"): the EFI variable `StormnicVerbose` under vendor GUID
+  `ce1479a2-eab9-4176-b0ad-c909ea5b8e0b` (shared by every stormnic driver),
+  read once at the entry point; a first data byte other than 0 turns the
+  bring-up trace on. The `verbose` build feature does the same at build time.
+  Nothing else is read; the PCI IDs it takes are compiled in (`DEVICES` in
+  `src/main.rs`).
 
 ## Tests
 
 `scripts/test-host.sh` builds and runs the host tests of the UEFI-independent
 code against simulated firmware (`test/bars.rs`: EDK2 and AMI BAR numbering) and
 the link-diagnostics decoding (`test/module.rs`: module EEPROM fields, MAD
-status codes, request splitting, PTYS link modes; spec 5.11–5.12).
+status codes, request splitting, PTYS link modes; spec 5.11–5.12) and the
+quiet console's replay ring (`test/trace.rs`, #16).
 Run it on dev through `sc-build 'scripts/test-host.sh'`.
 
 ## How it ships
@@ -167,19 +178,87 @@ The image is an EFI boot-service driver (`build.rs` sets the PE subsystem;
 Source layout: `src/hcr.rs` (HCR protocol, spec 2), `src/fw.rs` (ownership,
 reset, bring-up, profile, teardown, spec 1, 3 and 6.4), `src/eth.rs` (EQ, CQs,
 QPs, MTT, memory region, port setup, steering, send/receive, link state, spec
-4–6), `src/diag.rs` and `src/module.rs` (link diagnostics: module EEPROM and
+4–6), `src/console.rs` and `src/trace.rs` (quiet console, verbose switch and
+replay ring, #16), `src/diag.rs` and `src/module.rs` (link diagnostics: module EEPROM and
 PTYS, spec 5.11–5.13), `src/snp.rs` (the SNP and the child handles), `src/dma.rs` (DMA buffers,
 big-endian accessors, page-list split, spec 3.2), `src/pci.rs`.
 
-Every decision about a ConnectX-3 is printed to the console, including every
-firmware command and its status, the QUERY_FW version and interface revision,
-the raw QUERY_DEV_CAP bytes 0x10–0xa7 and the ICM layout, which is what the
-spec's hardware checklist (section 7) asks for. A successful start looks like
+### Console output
+
+By default (#16) the console gets **one line per port** when `Start`
+succeeds, plus every warning and error:
 
 ```
-stormnic-mlx4 0.2.4: driver binding installed (15b3:1003 ConnectX-3, 15b3:1007 ConnectX-3 Pro)
-stormnic-mlx4: 0000:05:00.0 15b3:1003 ConnectX-3:
-  Supported: yes
+stormnic-mlx4 0.2.5: 0000:05:00.0 15b3:1003 ConnectX-3 port 1: MAC f4:52:14:84:b7:e0, link up 10G XFI, SNP installed
+```
+
+(`no link` in place of `link up …` when the 5 s link wait ran out.)
+
+**Verbose** prints the full trace: every decision about a ConnectX-3, every
+firmware command and its status, the QUERY_FW version and interface revision,
+the raw QUERY_DEV_CAP bytes 0x10–0xa7 and the ICM layout (what the spec's
+hardware checklist, section 7, asks for), the SNP calls, the first 16 frames
+each way per port, and the #17 link diagnostics on a port with link. Turn it
+on without a rebuild by setting the variable before the driver loads.
+stormbootx does this from its config. From the UEFI shell:
+
+```
+setvar StormnicVerbose -guid ce1479a2-eab9-4176-b0ad-c909ea5b8e0b -bs =01
+```
+
+or build with `--features verbose`. The code is `src/console.rs`: `say!`
+always prints, `trace!` prints only when verbose, `note!(loud, …)` picks one,
+and `alarm!` marks a failure. When quiet, the trace lines are not lost
+outright. The last 16 are kept (`src/trace.rs`), and a failure prints them
+first (`stormnic-mlx4: the N step(s) before the failure below (M earlier not
+kept):`), then the failure. So a quiet console still shows the failing
+command, its status and the steps before it.
+
+**Always printed** (quiet or verbose):
+- the per-port line above;
+- `stormnic-mlx4: LOC 15b3:DDDD NAME: already has an SNP, leaving it to the
+  platform's driver`, `…: not taken, PCI I/O is held (<status>)` and
+  `stormnic-mlx4: Start: cannot claim PCI I/O (<status>)`;
+- a failed firmware command (`  OP (in_mod): status 0x03, bad parameter`,
+  `timed out after 60 s` with the catastrophic error buffer) and every other
+  bring-up failure, after the replayed steps. `Start` then ends with
+  `stormnic-mlx4: LOC 15b3:DDDD NAME: Start: firmware bring-up failed,
+  releasing the NIC` (or `data path bring-up failed`, `no SNP installed`, `no
+  Ethernet port`);
+- `stormnic-mlx4: port N: no link after 5 s; reported as no media`, and for
+  such a port what QUERY_PORT reports (speed code, autonegotiation enabled and
+  complete, transceiver type, vendor OUI, wavelength and code, spec 3.5) and
+  the #17 link diagnostics below;
+- link changes (`stormnic-mlx4: port N: link up/down`), and at link-down the
+  QUERY_PORT line and the link diagnostics;
+- the first own frame the adapter loops back (`port N rx: own frame looped
+  back (... bytes to ...), dropped (5.10)`, spec 7 item 14);
+- error completions (`port N rx:`/`tx: error completion, syndrome ...`), a
+  failed TX doorbell, EQ errors (`event: CQ …`, `event: QP …`, `event: local
+  catastrophic error`), `MAP_EQ failed`, `port N: not Ethernet-capable (...);
+  skipped`, `QUERY_PORT failed`, teardown failures (`teardown by command
+  failed; resetting the device instead`), and `ownership semaphore reads <v>:
+  another function or driver owns the device; leaving it`.
+
+**Link diagnostics** (#17, spec 5.11–5.13): `port N: module EEPROM:` with the
+MAD_IFC HCR status, the MAD status (a cable-info error such as `0x0400 ... no
+EEPROM (passive copper cable)` is not a fault on a DAC) and the identifier,
+then for an SFP or QSFP the raw bytes and their SFF labels (passive or active
+cable, length, vendor, part, serial; spec 5.11.5). `port N: PTYS:` gives the
+supported, advertised, operating and partner link modes when the firmware
+answers ACCESS_REG. Without QUERY_DEV_CAP 0x7a bit 5 that is one read-only
+query for spec 7 item 18, not repeated once refused (spec 5.12). Then `speed
+control:` says whether the card offers a forced speed (spec 5.13); the blades'
+firmware 2.30.8000 does not. These lines are printed after the link wait and at
+every link-down. They are always printed for a port without link, and only in
+the verbose trace for one with link. **For spec 7 items 17–18 on a port with
+link, boot verbose.**
+
+A verbose start looks like
+
+```
+stormnic-mlx4 0.2.5: driver binding installed (15b3:1003 ConnectX-3, 15b3:1007 ConnectX-3 Pro)
+stormnic-mlx4: 0000:05:00.0 15b3:1003 ConnectX-3: Supported
 stormnic-mlx4: 0000:05:00.0 15b3:1003 ConnectX-3:
   Start: bound; bringing up the firmware
   ownership semaphore read 0: claimed
@@ -211,10 +290,11 @@ stormnic-mlx4: port 1: link up
   port 1: module EEPROM: vendor "..." OUI ..:..:.., part "..." rev "..", serial "..."
   port 1: module EEPROM: cable compliance .. .. (bytes 60-61), diagnostics ... (byte 92 0x..)
   port 1: PTYS: not offered (QUERY_DEV_CAP 0x7a bit 5, ETH_PROT_CTRL, is 0); one read-only query for spec 7 item 18
-  port 1: PTYS: ACCESS_REG failed (HCR status above); no link-mode masks
+  port 1: PTYS: ... (the firmware's answer, or its status)
   speed control: not offered (ETH_PROT_CTRL 0): no forced speed or autoneg setting on this card (5.13); set the switch port
   port 1: SNP installed on a child handle, MAC f4:52:14:84:b7:e0, media present
   Start: 1 SNP child handle(s) installed
+stormnic-mlx4 0.2.5: 0000:05:00.0 15b3:1003 ConnectX-3 port 1: MAC f4:52:14:84:b7:e0, link up 10G XFI, SNP installed
 stormnic-mlx4: port 1 SNP: started
 stormnic-mlx4: port 1 SNP: initialized, media present
 stormnic-mlx4: port 1 SNP: receive filters 0x7, 1 multicast address(es)
@@ -222,35 +302,10 @@ stormnic-mlx4: port 1 tx: 342 bytes ff:ff:ff:ff:ff:ff <- f4:52:14:84:b7:e0 type 
 stormnic-mlx4: port 1 rx: 342 bytes ff:ff:ff:ff:ff:ff <- ... type 0800
 ```
 
-The first 16 frames each way per port are logged, one line each. If the
-adapter loops back a frame from the port's own MAC, the first one is logged
-(`port N rx: own frame looped back (... bytes to ...), dropped (5.10)`). A failed
-step prints the command with its status (`status 0x03, bad parameter`), a
-timeout also prints the catastrophic error buffer, and `Start` ends with
-`Start: firmware bring-up failed, releasing the NIC` or `Start: data path
-bring-up failed, releasing the NIC`. Per port: `port N: not Ethernet (...);
-skipped`, `port N: no link after 5 s; reported as no media`, link changes
-(`stormnic-mlx4: port N: link up/down`), each followed by what QUERY_PORT
-reports about the link and module (speed code, autonegotiation enabled and
-complete, transceiver type, vendor OUI, wavelength and code, spec 3.5; the
-speed means nothing without link). After the link wait and at every link-down
-the link diagnostics follow (#17): `port N: module EEPROM:` with the MAD_IFC
-HCR status, the MAD status (a cable-info error such as `0x0400 ... no EEPROM
-(passive copper cable)`, which is not a fault on a DAC) and the identifier,
-then for an SFP or QSFP the raw bytes and their SFF labels (passive or active
-cable, length, vendor, part, serial; spec 5.11.5); `port N: PTYS:` with the
-supported, advertised, operating and partner link modes when the firmware
-answers ACCESS_REG (spec 5.12; without QUERY_DEV_CAP 0x7a bit 5 it is one
-read-only query for spec 7 item 18, not repeated once refused); and `speed
-control:` saying whether the card offers a forced speed (spec 5.13; the
-blades' firmware 2.30.8000 does not). Error completions (`rx:`/`tx: error
-completion, syndrome ...`) and EQ events (CQ and QP errors). Other outcomes:
-`Supported: already has an SNP, leaving it to the platform's driver`,
-`Supported: no, PCI I/O is held (<status>)`, `Start: cannot claim PCI I/O
-(<status>)`, and `ownership semaphore reads <v>: another function or driver
-owns the device; leaving it`. Handles that are not a ConnectX-3 are rejected
-silently (the firmware offers every handle in the system). `Stop` prints
-`stormnic-mlx4: Stop: ...` with the children left or the teardown. The
-ExitBootServices handler prints nothing.
+(The PTYS answer on the blades is not known yet; that is spec 7 item 18.)
+`Stop` traces `stormnic-mlx4: Stop: ...` with the children left or the
+teardown. Handles that are not a ConnectX-3 are rejected silently (the
+firmware offers every handle in the system). The ExitBootServices handler
+prints nothing.
 
 See CLAUDE.md for the work plan.

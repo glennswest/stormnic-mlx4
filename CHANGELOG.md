@@ -5,6 +5,10 @@
 <!-- New unreleased changes go here -->
 
 ### 2026-10-06
+- **feat:** Quiet console by default (#16), the same switch as stormnic-ixgbe#22: one line per port on a good Start (`stormnic-mlx4 X.Y.Z: LOC 15b3:DDDD NAME port N: MAC …, link up SPEED|no link, SNP installed`) plus every warning and error. The command trace, ICM sizes, QUERY_DEV_CAP bytes, SNP calls, per-frame lines and the #17 diagnostics on a linked port are printed only when verbose: the EFI variable `StormnicVerbose` (vendor GUID ce1479a2-eab9-4176-b0ad-c909ea5b8e0b, first byte non-zero, read once at the entry point) or the `verbose` build feature. When quiet, the last 16 trace lines are kept and replayed ahead of any failure. A port without link still prints its QUERY_PORT and link-diagnostic lines. Diagnostic commands (MAD_IFC, ACCESS_REG) report their own status instead of a failure replay. New `src/console.rs`, `src/trace.rs`, host test `test/trace.rs`.
+- **docs:** README "Console output" (what is always printed, the verbose switch, the replay); CLAUDE.md logging rule and interfaces (#16).
+
+### 2026-10-06
 - **docs:** v0.2.4 verified in sc-build (subsystem 11, host tests 9 + 8); pin requested in stormbootx#104; README and work plan record the v0.2.3 pin and the #17 hardware check left (#17).
 
 ### 2026-10-06

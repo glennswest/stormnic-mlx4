@@ -21,9 +21,11 @@ scratch files go in `tmp/`.
   installs `EFI_DRIVER_BINDING_PROTOCOL` so the firmware's `ConnectController`
   binds it. stormbootx loads it and then connects controllers.
 - A platform's own driver must win: if the NIC already has an SNP, do nothing.
-- Everything the driver does is logged to the console. The only way to debug
-  it on the blades is the SOL capture on stormcentral
-  (`/var/lib/stormcentral/console/serverN/sol.log`).
+- Everything the driver does is logged, through `src/console.rs` (#16): `trace!` for the bring-up trace (printed
+  only when verbose: `StormnicVerbose` or `--features verbose`; else kept in a 16-line ring a failure replays),
+  `say!` for the one line per port and every warning or error, `alarm!` for failures. Never `uefi::println!`
+  directly. The only way to debug it on the blades is the SOL capture on stormcentral
+  (`/var/lib/stormcentral/console/serverN/sol.log`); boot verbose for a hardware check.
 
 ## Build
 
@@ -49,8 +51,8 @@ interface, not a way to retain an sc-build artifact. sc-build keeps no image.
 The media/golden work belongs to stormbootx; do not create a persistent build
 checkout or copy artifacts out of sc-build.
 
-No configuration, ports or APIs; the only interface is the driver binding and
-the SNP children (README, "Interfaces and configuration").
+No ports or APIs; the interfaces are the driver binding, the SNP children, and one console switch, the EFI
+variable `StormnicVerbose` (#16; README, "Interfaces and configuration").
 
 ## Test
 
