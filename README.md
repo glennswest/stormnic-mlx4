@@ -52,6 +52,16 @@ sc-build 'cargo build --locked --release --target x86_64-unknown-uefi && scripts
 (`sc-build 'cargo update -p uefi && cat Cargo.lock'`, then commit the result)
 and note it in the changelog.
 
+The image is byte-reproducible: the same commit gives the same
+`stormnic-mlx4.efi` whatever the checkout directory or `CARGO_HOME` (#13).
+`.cargo/config.toml` runs rustc through `scripts/rustc-remap.sh`, which remaps
+each crate's source directory, the toolchain sysroot and `CARGO_HOME` to fixed
+names in the panic and log locations rustc embeds. `build.rs` links with
+`/Brepro`, so the PE timestamp is derived from the contents instead of the
+clock. `sc-build scripts/repro-check.sh` checks it: it builds the commit twice,
+in two directories with two `CARGO_HOME`s, and fails unless the images are
+identical. A `RUSTC_WRAPPER` set in the environment replaces the remap wrapper.
+
 A verbose image, which prints the whole bring-up trace on every boot, is
 `--features verbose` on the same command
 (`sc-build 'cargo build --locked --release --target x86_64-unknown-uefi --features verbose'`).

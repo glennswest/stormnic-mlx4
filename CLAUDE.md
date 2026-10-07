@@ -34,6 +34,8 @@ sc-build 'cargo build --locked --release --target x86_64-unknown-uefi && scripts
 ```
 
 `Cargo.lock` is committed (#9); keep `--locked`, and change dependencies only by a deliberate lock update.
+The image is byte-reproducible (#13): keep `.cargo/config.toml` (rustc wrapper `scripts/rustc-remap.sh`) and
+`/Brepro` in `build.rs`, and check with `sc-build scripts/repro-check.sh` after a build or dependency change.
 The second half checks the image is a boot-service driver (PE subsystem 11).
 Each sc-build job gets its own drive, deleted afterwards, so the image does not
 survive the job; `${CARGO_TARGET_DIR:-target}` finds it wherever the job puts

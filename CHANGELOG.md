@@ -5,6 +5,11 @@
 <!-- New unreleased changes go here -->
 
 ### 2026-10-06
+- **fix:** Byte-reproducible image (#13). `scripts/repro-check.sh` found two causes: absolute build paths in panic/log locations (each dependency's directory under `CARGO_HOME`, the toolchain sysroot), and the PE TimeDateStamp set to the build time. `.cargo/config.toml` now runs rustc through `scripts/rustc-remap.sh`, which remaps those paths to fixed names (cargo's `trim-paths` is not stable in 1.95), and `build.rs` links with `/Brepro`.
+- **test:** `scripts/repro-check.sh` builds the commit twice, in two directories with two `CARGO_HOME`s, and fails unless the images are identical (#13).
+- **docs:** README Build and CLAUDE.md describe the reproducible build and its check (#13).
+
+### 2026-10-06
 - **docs:** Work plan for #21: no blade has booted a stormbootx with stormnic-mlx4 ≥ v0.2.3 yet. stormbootx v0.18.0/v0.19.0 pin it, but the served signed rustnic golden is v0.14.0 (v0.2.1, stormbootx#92), so item 14 waits on that boot (#21).
 
 ### 2026-10-06
