@@ -114,6 +114,9 @@ Open:
   `verbose` feature, `StormnicVerbose` (GUID ce1479a2-…-c909ea5b8e0b). sc-build passes (both images, host tests
   9 + 8 + 3). Pin asked in stormbootx#104. Left: a rustnic boot at that pin showing the one line per port.
 - [ ] #7 unlogged identify/Start error paths.
-- [ ] #13 byte-reproducible image. **In progress (2026-10-06):** `scripts/repro-check.sh` builds the commit twice in one
-  sc-build job, in two checkout directories with two `CARGO_HOME`s, and compares sha256 and embedded build paths.
-  Then make the build path-independent if it is not (stormnic-ixgbe#12 has no fix yet).
+- [ ] #13 byte-reproducible image. `scripts/repro-check.sh` (111782b) confirmed it is NOT reproducible: sha256 differ
+  (4250 bytes), causes `CARGO_HOME`/sysroot paths in panic/log locations and the PE TimeDateStamp. Fix pushed in b812d12
+  (rustc wrapper `scripts/rustc-remap.sh` via `.cargo/config.toml`, `/Brepro`), docs 3d30675. **Not yet verified:**
+  five sc-builds of 3d30675 got no slot (exit 75, dev saturated, 2026-10-06/07). Next: `sc-build 'scripts/repro-check.sh
+  && …build && scripts/test-host.sh'`; if it passes, close #13 and build-failure #23. If the remap misses a path,
+  repro-check lists the strings left.
