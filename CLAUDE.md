@@ -101,9 +101,12 @@ Open:
   `cf37f8b`, v0.2.1), and server3's 22:43Z boot ran 0.12.0 with v0.2.1. Waits on an X9 boot ≥ v0.18.0 (master;
   promotion is stormbootx#92). Then record §7.1 item 14 and close. Quiet console (v0.2.5) still prints that line.
 - [ ] #12 §7 items 15 and 16, recorded in spec §7.1 (2026-10-06, 34 SOL captures, server1/3/4/7/8). **16 done**: 256
-  reserved MPTs → MPT 0x100, L_Key 0x00010000, no collision. **15 blocked on stormcos#220**: all 32 attached boots
-  reach `STARTING KERNEL`, but the image's kernel writes to ttyS0 and the X9 SOL is ttyS1, so no `mlx4_core` probe
-  is visible. Proposed `--after stormcos#220`; once a boot shows the OS side, record it in §7.1 and close #12.
+  reserved MPTs → MPT 0x100, L_Key 0x00010000, no collision. **15, orderly teardown: answered 2026-11-07.** The image
+  cmdline now has `console=ttyS1` (stormcos#220 is still open, but the kernel reaches the SOL): ~40 v0.2.5 boots on
+  server1/2/7/8 show `mlx4_core` probing cleanly after the hand-off; `STARTING KERNEL` → kernel clock ≤ 1.0 s
+  (`.log.times`, 36 boots). **15, bus-master-only fallback (6.4 HW-CHECK): in progress.** No boot exercised it. Branch
+  `test/ebs-fallback` (never merged) makes ExitBootServices skip the command sequence; a rustnic boot at that ref
+  (master, `wait-hardware`) must show `mlx4_core` probing cleanly. Then record it in §7.1 and close #12.
 - [ ] #17 DAC link diagnostics, now specified (#20 done 2026-10-06: spec 5.11–5.13, HW-checks 17–19). Item 1
   (module EEPROM via MAD_IFC 0xFF60, spec 5.11) can be built. Items 2–3 need PTYS, gated on QUERY_DEV_CAP 0x7a
   bit 5, which the blades' firmware 2.30.8000 leaves 0 (spec 5.13): log that, no speed setting (stormbootx#80).
