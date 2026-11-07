@@ -115,8 +115,8 @@ Open:
   9 + 8 + 3). Pin asked in stormbootx#104. Left: a rustnic boot at that pin showing the one line per port.
 - [ ] #7 unlogged identify/Start error paths.
 - [ ] #13 byte-reproducible image. `scripts/repro-check.sh` (111782b) confirmed it is NOT reproducible: sha256 differ
-  (4250 bytes), causes `CARGO_HOME`/sysroot paths in panic/log locations and the PE TimeDateStamp. Fix pushed in b812d12
-  (rustc wrapper `scripts/rustc-remap.sh` via `.cargo/config.toml`, `/Brepro`), docs 3d30675. **Not yet verified:**
-  five sc-builds of 3d30675 got no slot (exit 75, dev saturated, 2026-10-06/07). Next: `sc-build 'scripts/repro-check.sh
-  && …build && scripts/test-host.sh'`; if it passes, close #13 and build-failure #23. If the remap misses a path,
-  repro-check lists the strings left.
+  (4250 bytes), causes `CARGO_HOME`/sysroot paths in panic/log locations and the PE TimeDateStamp. Fix b812d12
+  (rustc wrapper `scripts/rustc-remap.sh` via `.cargo/config.toml`, `/Brepro`). **First run of ee95010 (2026-11-07):**
+  the paths are gone (only the prebuilt std's `/rustc/<hash>/` paths, the same in both), but 20 bytes still differ:
+  the PE TimeDateStamp (a content hash under `/Brepro`) plus 16 bytes elsewhere. No PDB (`strip = true` →
+  `/DEBUG:NONE`). repro-check now prints where the images differ; a diagnostic run of it decides the next fix.
