@@ -117,5 +117,8 @@ Open:
 - [ ] #16 quiet console by default, trace behind a verbose switch. **Built in v0.2.5 (`04e7d2c`, 2026-10-06)**, ixgbe#22's
   shape: `src/console.rs` (`say!`/`trace!`/`alarm!`/`note!`), `src/trace.rs` (16-line replay ring, `test/trace.rs`),
   `verbose` feature, `StormnicVerbose` (GUID ce1479a2-…-c909ea5b8e0b). sc-build passes (both images, host tests
-  9 + 8 + 3). Pin asked in stormbootx#104. Left: a rustnic boot at that pin showing the one line per port.
+  9 + 8 + 3). Pinned by stormbootx#104. 2026-11-07: 14 X9 boots at v0.2.5 (server1/2/8) were quiet but printed a
+  second line, `port 1: link up`, from the bring-up link wait; **v0.2.7 (`e961b52`)** makes that trace only (sc-build:
+  both images, subsystem 11, host tests, repro-check). Pin asked in stormbootx#195 (item `--after` it). Left: a rustnic
+  boot at the v0.2.7 pin showing exactly the one line per port; then close #16.
 - [ ] #7 unlogged identify/Start error paths.
