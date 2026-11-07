@@ -121,4 +121,7 @@ Open:
   second line, `port 1: link up`, from the bring-up link wait; **v0.2.7 (`e961b52`)** makes that trace only (sc-build:
   both images, subsystem 11, host tests, repro-check). Pin asked in stormbootx#195 (item `--after` it). Left: a rustnic
   boot at the v0.2.7 pin showing exactly the one line per port; then close #16.
-- [ ] #7 unlogged identify/Start error paths.
+- [ ] #7 unlogged identify/Start error paths. **In progress 2026-11-07:** a ConnectX-3 whose `GetLocation` fails is
+  logged and still driven, with location `?` (the location only labels lines); `Start` logs a failed ID read and
+  returns its status, not `DEVICE_ERROR`. A failed ID read in `Supported` stays silent: nothing says the
+  controller is a ConnectX-3.
