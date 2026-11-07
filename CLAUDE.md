@@ -87,6 +87,9 @@ Done (history in git and CHANGELOG.md):
 - [x] #10 `docs/spec/connectx3.md` (the only source; BSD notice in `NOTICE`). #20 added 5.11–5.13 (EEPROM, PTYS, speed).
 - [x] #18 RX, a DHCP lease and an NVMe/TCP claim through the ConnectX-3 (server3 and server8 rustnic boots, v0.2.1,
   2026-10-02..05). Spec §7.1 records HW-checks 1–13; item 14 split to #21 (v0.2.3).
+- [x] #13 byte-reproducible image (v0.2.6, `e5b9892`, 2026-11-07): rustc wrapper `scripts/rustc-remap.sh` remaps
+  build paths, `/Brepro`, and `/DEBUG:NONE` (lld's PDB GUID followed the build directory). `scripts/repro-check.sh`
+  passed in sc-build: two directories, two `CARGO_HOME`s, identical images (sha256 `ce07585b…`, 105472 bytes).
 - [x] #15 UAR `BarIndex` from `GetBarAttributes` (v0.2.1), VPI ports forced to Ethernet, link/module
   diagnostics at link wait and link changes (v0.2.2). v0.2.2 pin requested in stormbootx#66.
 
@@ -114,9 +117,3 @@ Open:
   `verbose` feature, `StormnicVerbose` (GUID ce1479a2-…-c909ea5b8e0b). sc-build passes (both images, host tests
   9 + 8 + 3). Pin asked in stormbootx#104. Left: a rustnic boot at that pin showing the one line per port.
 - [ ] #7 unlogged identify/Start error paths.
-- [ ] #13 byte-reproducible image. `scripts/repro-check.sh` (111782b) confirmed it is NOT reproducible: sha256 differ
-  (4250 bytes), causes `CARGO_HOME`/sysroot paths in panic/log locations and the PE TimeDateStamp. Fix b812d12
-  (rustc wrapper `scripts/rustc-remap.sh` via `.cargo/config.toml`, `/Brepro`). **First run of ee95010 (2026-11-07):**
-  the paths are gone (only the prebuilt std's `/rustc/<hash>/` paths, the same in both), but 20 bytes still differ:
-  the PE TimeDateStamp (a content hash under `/Brepro`) plus 16 bytes elsewhere. No PDB (`strip = true` →
-  `/DEBUG:NONE`). repro-check now prints where the images differ; a diagnostic run of it decides the next fix.
