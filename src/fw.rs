@@ -98,8 +98,10 @@ pub fn close(hca: Hca, pci: &mut PciIo) -> bool {
 /// services). Then release ownership without the wait and clear bus master.
 /// If a command fails, clearing bus master alone stops the device's DMA.
 pub fn quiesce(hca: &mut Hca, pci: &mut PciIo) {
+    // TEST BUILD (branch test/ebs-fallback, #12; never merged): skip the command
+    // sequence, as when a teardown command fails, so the OS driver meets the
+    // device with only bus master cleared (6.4 HW-CHECK, spec 7 item 15).
     hca.hcr.silent = true;
-    let _ = hca.stop_firmware(pci);
     hca.broken = true;
     let _ = pci.mem_write32(BAR_DCS, OWNER, 0);
     if let Ok(cmd) = pci.read_config16(0x04) {

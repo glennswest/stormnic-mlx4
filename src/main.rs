@@ -392,6 +392,7 @@ fn main() -> Status {
             trace!(
                 "stormnic-mlx4 {version}: driver binding installed (15b3:1003 ConnectX-3, 15b3:1007 ConnectX-3 Pro)"
             );
+            say!("stormnic-mlx4 {version}: TEST BUILD test/ebs-fallback (#12): ExitBootServices clears bus master only, no teardown commands");
             Status::SUCCESS
         }
         Err(e) => {
