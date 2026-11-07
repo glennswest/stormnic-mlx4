@@ -124,7 +124,7 @@ fn identify(agent: Handle, controller: Handle) -> Option<(String, u16, &'static 
     let mut pci = open_pci(agent, controller, OpenProtocolAttributes::GetProtocol).ok()?;
     let (vendor, device) = pci.ids().ok()?;
     let name = model(vendor, device)?;
-    Some((place(&mut *pci, vendor, device, name), device, name))
+    Some((place(&mut pci, vendor, device, name), device, name))
 }
 
 /// The function's PCI location for the console, or `?` when `GetLocation`
