@@ -5,6 +5,7 @@
 <!-- New unreleased changes go here -->
 
 ### 2026-11-07
+- **fix:** The identify and Start error paths are logged (#7). A ConnectX-3 whose PCI I/O `GetLocation` fails is no longer refused silently: the failure is printed and the NIC is driven with location `?`. `Start` prints a failed PCI ID read and returns its status instead of `DEVICE_ERROR`.
 - **docs:** Spec §7.1 item 14 (#21): no own-frame loopback with LB_SRC_CHK 1. Six v0.2.5 rustnic boots (server1 ×4, server7, server8) got a DHCP lease through the ConnectX-3 port and none printed `own frame looped back`.
 - **docs:** Spec §7.1 item 15 (#12): the orderly ExitBootServices teardown is verified from the OS side. About 40 rustnic boots at v0.2.5 on server1/2/7/8 show `mlx4_core` probing cleanly after the hand-off, with no command timeouts, and the hand-off to the kernel's clock is ≤ 1.0 s (median 0.3 s). The bus-master-only fallback (6.4) is still to be exercised.
 - **fix:** A quiet Start printed `stormnic-mlx4: port 1: link up` ahead of the port's one line on every v0.2.5 boot (14 X9 rustnic boots, server1/2/8), because the link coming up during the bring-up link wait counted as a link change. During the wait it is now in the trace only; later link changes are still printed (#16).

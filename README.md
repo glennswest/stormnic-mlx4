@@ -232,6 +232,12 @@ command, its status and the steps before it.
 - `stormnic-mlx4: LOC 15b3:DDDD NAME: already has an SNP, leaving it to the
   platform's driver`, `…: not taken, PCI I/O is held (<status>)` and
   `stormnic-mlx4: Start: cannot claim PCI I/O (<status>)`;
+- `stormnic-mlx4: ? 15b3:DDDD NAME: PCI I/O GetLocation failed (<status>);
+  location shown as ?`: the NIC is still driven, with `?` for LOC in its
+  lines, since the location only labels them; and `stormnic-mlx4: Start:
+  cannot read the PCI IDs (<status>); releasing the NIC`, after which Start
+  returns that status. (A controller whose IDs cannot be read in `Supported`
+  is not known to be a ConnectX-3, so it is refused without a line.);
 - a failed firmware command (`  OP (in_mod): status 0x03, bad parameter`,
   `timed out after 60 s` with the catastrophic error buffer) and every other
   bring-up failure, after the replayed steps. `Start` then ends with

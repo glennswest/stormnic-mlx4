@@ -38,6 +38,7 @@ mod snp;
 mod trace;
 
 use alloc::boxed::Box;
+use alloc::string::String;
 use alloc::vec::Vec;
 use core::ffi::c_void;
 use core::ptr;
@@ -117,12 +118,25 @@ fn open_pci(
 
 /// A ConnectX-3 on this controller: where it is and what it is. `None` for
 /// anything else, which is every other handle in the system, so no logging.
-fn identify(agent: Handle, controller: Handle) -> Option<(pci::Location, u16, &'static str)> {
+fn identify(agent: Handle, controller: Handle) -> Option<(String, u16, &'static str)> {
+    // No PCI I/O, or IDs that cannot be read: nothing says it is a
+    // ConnectX-3, and Supported is asked about every handle, so say nothing.
     let mut pci = open_pci(agent, controller, OpenProtocolAttributes::GetProtocol).ok()?;
     let (vendor, device) = pci.ids().ok()?;
     let name = model(vendor, device)?;
-    let loc = pci.location().ok()?;
-    Some((loc, device, name))
+    Some((place(&mut *pci, vendor, device, name), device, name))
+}
+
+/// The function's PCI location for the console, or `?` when `GetLocation`
+/// fails. The location only labels lines, so a failure is said, not fatal (#7).
+fn place(pci: &mut PciIo, vendor: u16, device: u16, name: &str) -> String {
+    match pci.location() {
+        Ok(loc) => alloc::format!("{loc}"),
+        Err(e) => {
+            say!("stormnic-mlx4: ? {vendor:04x}:{device:04x} {name}: PCI I/O GetLocation failed ({:?}); location shown as ?", e.status());
+            "?".into()
+        }
+    }
 }
 
 /// A started controller: the device, its ports and their children.
@@ -210,11 +224,16 @@ unsafe extern "efiapi" fn start(
     let pci_ptr = iface.cast::<PciIo>();
     // SAFETY: opened BY_DRIVER above; it stays open until `stop`.
     let pci = unsafe { &mut *pci_ptr };
-    let (Ok((vendor, device)), Ok(loc)) = (pci.ids(), pci.location()) else {
-        close_pci();
-        return Status::DEVICE_ERROR;
+    let (vendor, device) = match pci.ids() {
+        Ok(ids) => ids,
+        Err(e) => {
+            alarm!("stormnic-mlx4: Start: cannot read the PCI IDs ({:?}); releasing the NIC", e.status());
+            close_pci();
+            return e.status();
+        }
     };
     let name = model(vendor, device).unwrap_or("?");
+    let loc = place(pci, vendor, device, name);
     console::begin();
     let tag = alloc::format!("stormnic-mlx4: {loc} {vendor:04x}:{device:04x} {name}");
     trace!("{tag}:");
