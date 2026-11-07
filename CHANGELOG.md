@@ -5,6 +5,7 @@
 <!-- New unreleased changes go here -->
 
 ### 2026-11-07
+- **docs:** Spec §7.1 item 15 (#12): the orderly ExitBootServices teardown is verified from the OS side. About 40 rustnic boots at v0.2.5 on server1/2/7/8 show `mlx4_core` probing cleanly after the hand-off, with no command timeouts, and the hand-off to the kernel's clock is ≤ 1.0 s (median 0.3 s). The bus-master-only fallback (6.4) is still to be exercised.
 - **fix:** A quiet Start printed `stormnic-mlx4: port 1: link up` ahead of the port's one line on every v0.2.5 boot (14 X9 rustnic boots, server1/2/8), because the link coming up during the bring-up link wait counted as a link change. During the wait it is now in the trace only; later link changes are still printed (#16).
 - **docs:** #17 status: v0.2.5 is pinned (stormbootx#104) and boots quiet on server1/2/8; no verbose boot shows HW-checks 17–18 yet. Asked the master for a verbose server1 boot (`wait-hardware`).
 - **fix:** The image was still not reproducible after the path remap: 20 bytes differed, the CodeView debug directory's PDB GUID (lld hashes it from the PDB, which holds absolute build paths; rustc passes `/DEBUG` even with `strip = true`) and the `/Brepro` timestamps derived from it. `build.rs` now links with `/DEBUG:NONE`, so the image has no PDB reference (#13).
