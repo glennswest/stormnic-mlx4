@@ -242,8 +242,10 @@ command, its status and the steps before it.
   such a port what QUERY_PORT reports (speed code, autonegotiation enabled and
   complete, transceiver type, vendor OUI, wavelength and code, spec 3.5) and
   the #17 link diagnostics below;
-- link changes (`stormnic-mlx4: port N: link up/down`), and at link-down the
-  QUERY_PORT line and the link diagnostics;
+- link changes after the bring-up link wait (`stormnic-mlx4: port N: link
+  up/down`), and at link-down the QUERY_PORT line and the link diagnostics. A
+  port coming up during the wait is only in the trace, because the port's one
+  line reports its link;
 - the first own frame the adapter loops back (`port N rx: own frame looped
   back (... bytes to ...), dropped (5.10)`, spec 7 item 14);
 - error completions (`port N rx:`/`tx: error completion, syndrome ...`), a

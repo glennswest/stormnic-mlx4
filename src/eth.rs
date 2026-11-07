@@ -245,6 +245,9 @@ pub struct Port {
     joined: Vec<[u8; 6]>,
     /// The link changed; its speed and module are not printed yet (`report_news`).
     news: bool,
+    /// The bring-up link wait is over (`wait_link`). Until then a link change is
+    /// trace only: the port's one line after Start reports the link (#16).
+    settled: bool,
 }
 
 /// Every Ethernet port, up, and what they share.
@@ -351,6 +354,13 @@ impl Eth {
     /// Wait up to `max_ms` for every port to have link, so the first
     /// consumer of the SNP does not start on a port still training.
     pub fn wait_link(&mut self, hca: &mut Hca, pci: &mut PciIo, max_ms: u32) {
+        self.wait_link_inner(hca, pci, max_ms);
+        for p in &mut self.ports {
+            p.settled = true;
+        }
+    }
+
+    fn wait_link_inner(&mut self, hca: &mut Hca, pci: &mut PciIo, max_ms: u32) {
         let mut waited = 0;
         loop {
             self.poll(pci);
@@ -652,6 +662,7 @@ fn port_up(hca: &mut Hca, pci: &mut PciIo, sh: &mut Shared, s: &Setup, p: &PortI
         tx_broken: false,
         joined: Vec::new(),
         news: false,
+        settled: false,
     })
 }
 
@@ -869,7 +880,11 @@ impl Port {
 
     fn set_link(&mut self, up: bool) {
         if up != self.link_up {
-            say!("stormnic-mlx4: port {}: link {}", self.num, if up { "up" } else { "down" });
+            if self.settled {
+                say!("stormnic-mlx4: port {}: link {}", self.num, if up { "up" } else { "down" });
+            } else {
+                trace!("  port {}: link {}", self.num, if up { "up" } else { "down" });
+            }
             self.link_up = up;
             self.news = true;
         }
