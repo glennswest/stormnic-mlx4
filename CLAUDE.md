@@ -110,8 +110,10 @@ Open:
   **Built in v0.2.4 (`32083cd`, 2026-10-06):** `src/diag.rs`/`src/module.rs` print the module EEPROM (5.11) and a
   read-only PTYS query (5.12) after the link wait and at every link-down, plus a `speed control:` line; no PTYS
   write (item 3 is not offered on the blades, 5.13). sc-build passes (subsystem 11, host tests 9 + 8). Pin asked in
-  stormbootx#104 (now v0.2.5). Left: a **verbose** rustnic boot at that pin (stormbootx#102 sets `StormnicVerbose`);
-  record HW-checks 17–18 in spec §7.1, then close #17.
+  stormbootx#104 — pinned v0.2.5 (`04e7d2c`, stormbootx 10e9377). Checked 2026-11-07: quiet v0.2.5 boots on
+  server1/2/8 (stormbootx 0.29.0) show only the per-port line (link up, so no #17 lines); no SOL capture has a
+  verbose boot. Left: a **verbose** X9 rustnic boot (`nic_verbose = true`, stormbootx#80/#102), asked of the master
+  with `wait-hardware` (server1); record HW-checks 17–18 in spec §7.1, then close #17.
 - [ ] #16 quiet console by default, trace behind a verbose switch. **Built in v0.2.5 (`04e7d2c`, 2026-10-06)**, ixgbe#22's
   shape: `src/console.rs` (`say!`/`trace!`/`alarm!`/`note!`), `src/trace.rs` (16-line replay ring, `test/trace.rs`),
   `verbose` feature, `StormnicVerbose` (GUID ce1479a2-…-c909ea5b8e0b). sc-build passes (both images, host tests
