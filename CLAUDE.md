@@ -95,11 +95,8 @@ Done (history in git and CHANGELOG.md):
 
 Open:
 
-- [ ] #21 §7 item 14 (own-frame loopback): v0.2.3 logs the first looped-back own frame; answered by the first
-  rustnic boot at a pin with v0.2.3. Checked 2026-10-06: stormbootx v0.18.0/v0.19.0 (`649dd07`, golden
-  `golden-stormbootx-rustnic-61df2f5eed14f7ba`) pin `0e50017`, but the served signed golden is still v0.14.0 (pin
-  `cf37f8b`, v0.2.1), and server3's 22:43Z boot ran 0.12.0 with v0.2.1. Waits on an X9 boot ≥ v0.18.0 (master;
-  promotion is stormbootx#92). Then record §7.1 item 14 and close. Quiet console (v0.2.5) still prints that line.
+- [x] #21 §7 item 14 (own-frame loopback): **no loopback** with LB_SRC_CHK 1. Recorded in spec §7.1 2026-11-07 from 6
+  v0.2.5 boots (server1 ×4, server7, server8) that leased through the ConnectX-3; no `own frame looped back` line.
 - [ ] #12 §7 items 15 and 16, recorded in spec §7.1 (2026-10-06, 34 SOL captures, server1/3/4/7/8). **16 done**: 256
   reserved MPTs → MPT 0x100, L_Key 0x00010000, no collision. **15, orderly teardown: answered 2026-11-07.** The image
   cmdline now has `console=ttyS1` (stormcos#220 is still open, but the kernel reaches the SOL): ~40 v0.2.5 boots on

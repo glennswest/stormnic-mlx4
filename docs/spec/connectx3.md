@@ -2434,7 +2434,7 @@ unicast to the port MAC (ARP replies, TCP), received through MCG entries.
 | 11 | **Direct ICM writes work.** Every EQ, CQ and QP buffer is reached only through MTT entries that the driver writes straight into the MTT table's ICM (4.2), and the device uses all of them. WRITE_MTT is never issued, so whether the native firmware offers it is not answered. | `first free MTT 64`; events, completions and frames as above |
 | 12 | **Ethernet-only.** QUERY_PORT supports Ethernet but suggests IB. The driver ignores the suggestion (5.1, owner on #15) and the port runs as Ethernet. | `port 1: link down, supports Ethernet, suggests IB, MTU cap 9600, speed code 0x0f, log max MACs 7`; `port 1: type Ethernet (Ethernet-only port; firmware suggestion IB ignored)` |
 | 13 | **1.7–2.1 s** from INIT_PORT and steering setup to link up, measured with a 100 ms poll. server3 took 2000 ms on 11 boots and 2100 ms on one; server8 took 1700–2100 ms. The 5 s link wait (`LINK_WAIT_MS`) leaves enough room. Boots with no link at all (#15, the DAC fixes) are not counted. | `link up on every Ethernet port after 2000 ms` |
-| 14 | **Not observable at v0.2.1.** LB_SRC_CHK is 1 and counters are on, so the RX QP sets the loopback source check (5.10). But the SNP drops frames whose source is the port's own MAC before it logs anything, so the console cannot show whether the adapter loops them back. v0.2.3 logs the first such frame; the answer comes from the next boot at that pin (#21). | `SW_CQ_INIT 0, LB_SRC_CHK 1`; no `rx:` line from the port's own MAC |
+| 14 | **Not observable at v0.2.1.** LB_SRC_CHK is 1 and counters are on, so the RX QP sets the loopback source check (5.10). But the SNP drops frames whose source is the port's own MAC before it logs anything, so the console cannot show whether the adapter loops them back. v0.2.3 logs the first such frame; the answer comes from the next boot at that pin (#21). *(Answered 2026-11-07 below.)* | `SW_CQ_INIT 0, LB_SRC_CHK 1`; no `rx:` line from the port's own MAC |
 
 Items 15 and 16 (#12), recorded 2026-10-06 from every stormcentral SOL capture of a rustnic boot: 34 boots of
 stormnic-mlx4 0.2.0/0.2.1 on **server1, 3, 4, 7 and 8**, all ConnectX-3 15b3:1003, firmware 2.30.8000.
@@ -2443,6 +2443,15 @@ stormnic-mlx4 0.2.0/0.2.1 on **server1, 3, 4, 7 and 8**, all ConnectX-3 15b3:100
 |---|---|---|
 | 15 | **Not observable yet.** Every boot that attached its image went on to `STARTING KERNEL - the machine is Linux's from here`, so ExitBootServices ran with this driver bound (its handler prints nothing, 6.4). But no capture has a line from the booted kernel. On the X9 blades the SOL is COM2 (ttyS1, I/O 0x2f8), and the started image's command line has only `console=tty0 console=ttyS0,115200n8`. The next lines in each capture are the firmware banner of the next boot. So neither the `mlx4_core` probe nor a firmware-command timeout after the hand-off can be seen. Earlier Fedora boots on the same blades (`console=ttyS1`, `earlycon=uart8250,io,0x2f8`) show their `mlx4_core` probe on the SOL, so a booted image with a ttyS1 console answers this. That console is stormcos#220. | `STARTING KERNEL …` followed directly by `Version 2.15.1236 … American Megatrends`; image cmdline `console=tty0 console=ttyS0,115200n8 root=/dev/ublkb0 …` | *(Superseded by the 2026-11-07 result below.)*
 | 16 | **No collision.** The firmware reserves 256 MPTs on every boot, so the region is MPT 0x100 and its L_Key is 0x00010000, never the padding key 0x100. The skip to index 2 (for exactly one reserved MPT, 4.3) is not reached on these cards. | `reserved: … MTTs …, MPTs 256, …` and `memory region: MPT 0x100, L_Key 0x00010000` on all 34 boots |
+
+Item 14 again, 2026-11-07 (#21): the own-frame line (`port N rx: own frame looped back …`, printed even on the
+quiet console) is in no capture. Source: the 6 distinct rustnic boots with stormnic-mlx4 0.2.5 in which the
+ConnectX-3 port itself got a DHCP lease, so it broadcast a DHCPDISCOVER and a DHCPREQUEST and received the replies:
+server1 ×4 (stormbootx 0.22.0, 0.22.0, 0.24.0, 0.35.0), server7 (0.35.0) and server8 (0.24.0).
+
+| # | Result | Evidence (console) |
+|---|---|---|
+| 14 | **No own-frame loopback.** With LB_SRC_CHK 1 on the RX QP (5.10), the adapter delivered none of the port's own transmitted frames, broadcasts included, to its RX QP. The SNP check of the source MAC (5.10) stays as a guard; it never fired. | `nic 1: driver stormnic-mlx4.efi`, `nic 1: leased 192.168.16.101/20` (server1), `…113/20` (server7), `…115/20` (server8); no `own frame looped back` line |
 
 Item 15 again, 2026-11-07: the started image's command line now has `console=tty0 console=ttyS1,115200
 console=ttyS0,115200n8`, so the booted kernel reaches the SOL. Source: every stormcentral SOL capture of a rustnic
