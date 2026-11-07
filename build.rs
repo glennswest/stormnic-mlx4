@@ -10,5 +10,11 @@ fn main() {
         // A PE timestamp derived from the image's contents, not the build
         // time, so the same source gives the same bytes (#13).
         println!("cargo::rustc-link-arg=/Brepro");
+        // No PDB and no CodeView debug directory: rustc passes /DEBUG even
+        // with `strip = true`, and lld then records a PDB GUID hashed from the
+        // PDB, which holds the build's absolute paths, so the image (and its
+        // /Brepro timestamp) followed the build directory (#13). Firmware never
+        // reads a PDB. This comes after rustc's /DEBUG, and the last one wins.
+        println!("cargo::rustc-link-arg=/DEBUG:NONE");
     }
 }

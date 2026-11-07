@@ -58,7 +58,8 @@ The image is byte-reproducible: the same commit gives the same
 each crate's source directory, the toolchain sysroot and `CARGO_HOME` to fixed
 names in the panic and log locations rustc embeds. `build.rs` links with
 `/Brepro`, so the PE timestamp is derived from the contents instead of the
-clock. `sc-build scripts/repro-check.sh` checks it: it builds the commit twice,
+clock, and with `/DEBUG:NONE`, so the image carries no PDB reference (lld's
+PDB GUID is hashed from a PDB full of build paths). `sc-build scripts/repro-check.sh` checks it: it builds the commit twice,
 in two directories with two `CARGO_HOME`s, and fails unless the images are
 identical. A `RUSTC_WRAPPER` set in the environment replaces the remap wrapper.
 

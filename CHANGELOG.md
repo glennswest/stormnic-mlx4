@@ -4,6 +4,10 @@
 
 <!-- New unreleased changes go here -->
 
+### 2026-11-07
+- **fix:** The image was still not reproducible after the path remap: 20 bytes differed, the CodeView debug directory's PDB GUID (lld hashes it from the PDB, which holds absolute build paths; rustc passes `/DEBUG` even with `strip = true`) and the `/Brepro` timestamps derived from it. `build.rs` now links with `/DEBUG:NONE`, so the image has no PDB reference (#13).
+- **test:** `scripts/repro-check.sh` prints the section table and the bytes around each difference when the images differ (#13).
+
 ### 2026-10-06
 - **fix:** Byte-reproducible image (#13). `scripts/repro-check.sh` found two causes: absolute build paths in panic/log locations (each dependency's directory under `CARGO_HOME`, the toolchain sysroot), and the PE TimeDateStamp set to the build time. `.cargo/config.toml` now runs rustc through `scripts/rustc-remap.sh`, which remaps those paths to fixed names (cargo's `trim-paths` is not stable in 1.95), and `build.rs` links with `/Brepro`.
 - **test:** `scripts/repro-check.sh` builds the commit twice, in two directories with two `CARGO_HOME`s, and fails unless the images are identical (#13).
