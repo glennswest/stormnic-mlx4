@@ -55,5 +55,16 @@ if cmp -s "$a" "$b"; then
     say "reproducible: the two images are identical ($(stat -c %s "$a") bytes)"
 else
     say "NOT reproducible: $(cmp -l "$a" "$b" | wc -l) byte(s) differ"
+    # Where: each differing run, its section, and the bytes around it.
+    objdump -h "$a" 2>/dev/null | sed -n '/^Idx/,$p' | sed 's/^/    /' || true
+    cmp -l "$a" "$b" | awk '{o=$1-1; if (o!=last+1) printf "%d\n", o; last=o}' | head -12 |
+    while read -r off; do
+        say "differs at file offset 0x$(printf %x "$off")"
+        for f in "$a" "$b"; do
+            od -An -tx1 -j $((off > 32 ? off - 32 : 0)) -N 96 "$f" | sed 's/^/    /'
+            echo "    --"
+        done
+        strings -n 4 -t x "$a" | awk -v o="$off" '{v=strtonum("0x"$1)} v<=o+64 && v>=o-256' | tail -4 | sed 's/^/    A str: /'
+    done
     exit 1
 fi
