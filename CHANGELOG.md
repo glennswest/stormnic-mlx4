@@ -5,6 +5,7 @@
 <!-- New unreleased changes go here -->
 
 ### 2026-11-07
+- **docs:** #17 status: v0.2.5 is pinned (stormbootx#104) and boots quiet on server1/2/8; no verbose boot shows HW-checks 17–18 yet. Asked the master for a verbose server1 boot (`wait-hardware`).
 - **fix:** The image was still not reproducible after the path remap: 20 bytes differed, the CodeView debug directory's PDB GUID (lld hashes it from the PDB, which holds absolute build paths; rustc passes `/DEBUG` even with `strip = true`) and the `/Brepro` timestamps derived from it. `build.rs` now links with `/DEBUG:NONE`, so the image has no PDB reference (#13).
 - **test:** Verified at `e5b9892` with sc-build: `scripts/repro-check.sh` gives two identical images (sha256 `ce07585b9de9…`, 105472 bytes) from two directories and two `CARGO_HOME`s; release build, PE subsystem 11, host tests 9 + 8 + 3 pass (#13).
 - **test:** `scripts/repro-check.sh` prints the section table and the bytes around each difference when the images differ (#13).
