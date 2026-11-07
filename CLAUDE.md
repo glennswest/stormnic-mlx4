@@ -71,7 +71,7 @@ not use the firmware's TCP4: its console line is `tcp4 : smoltcp over SNP
 
 ## Version
 
-`Cargo.toml` → `package.version`. Current: `v0.2.6`.
+`Cargo.toml` → `package.version`. Current: `v0.2.7`.
 
 ## Work plan
 

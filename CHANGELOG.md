@@ -63,6 +63,11 @@
 - **docs:** #1 recheck: server1 has still not booted the rustnic media; pass accepts 0.1.0 or 0.2.0, current golden named (work plan).
 - **docs:** #4 waits on stormbootx#50 (pin v0.2.0 on the rustnic media) for the server1 `tcp4 : available` check
 
+## [v0.2.7] — 2026-11-07
+
+### Fixed
+- Quiet console (#16): a port coming up during the bring-up link wait no longer prints `stormnic-mlx4: port N: link up` ahead of its one line; it is in the trace. Link changes after the wait are still printed.
+
 ## [v0.2.6] — 2026-11-07
 
 ### Fixed
