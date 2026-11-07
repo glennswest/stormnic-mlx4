@@ -66,6 +66,11 @@
 - **docs:** #1 recheck: server1 has still not booted the rustnic media; pass accepts 0.1.0 or 0.2.0, current golden named (work plan).
 - **docs:** #4 waits on stormbootx#50 (pin v0.2.0 on the rustnic media) for the server1 `tcp4 : available` check
 
+## [v0.2.8] — 2026-11-07
+
+### Fixed
+- Identify and Start error paths are logged (#7): a `GetLocation` failure is printed and the NIC is driven with location `?`; a failed PCI ID read in `Start` is printed and its status returned.
+
 ## [v0.2.7] — 2026-11-07
 
 ### Fixed

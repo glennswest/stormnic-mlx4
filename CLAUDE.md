@@ -71,7 +71,7 @@ not use the firmware's TCP4: its console line is `tcp4 : smoltcp over SNP
 
 ## Version
 
-`Cargo.toml` → `package.version`. Current: `v0.2.7`.
+`Cargo.toml` → `package.version`. Current: `v0.2.8`.
 
 ## Work plan
 
@@ -119,9 +119,8 @@ Open:
   `verbose` feature, `StormnicVerbose` (GUID ce1479a2-…-c909ea5b8e0b). sc-build passes (both images, host tests
   9 + 8 + 3). Pinned by stormbootx#104. 2026-11-07: 14 X9 boots at v0.2.5 (server1/2/8) were quiet but printed a
   second line, `port 1: link up`, from the bring-up link wait; **v0.2.7 (`e961b52`)** makes that trace only (sc-build:
-  both images, subsystem 11, host tests, repro-check). Pin asked in stormbootx#195 (item `--after` it). Left: a rustnic
-  boot at the v0.2.7 pin showing exactly the one line per port; then close #16.
-- [ ] #7 unlogged identify/Start error paths. **In progress 2026-11-07:** a ConnectX-3 whose `GetLocation` fails is
-  logged and still driven, with location `?` (the location only labels lines); `Start` logs a failed ID read and
-  returns its status, not `DEVICE_ERROR`. A failed ID read in `Supported` stays silent: nothing says the
-  controller is a ConnectX-3.
+  both images, subsystem 11, host tests, repro-check). Pin asked in stormbootx#195, now for v0.2.8 (item `--after` it). Left: a rustnic
+  boot at the v0.2.8 pin showing exactly the one line per port; then close #16.
+- [x] #7 identify/Start error paths logged (v0.2.8, `ae7b5d0`, 2026-11-07): `GetLocation` failure printed, NIC driven
+  with location `?`; failed PCI ID read in `Start` printed, its status returned. sc-build: both images, no rustc or
+  clippy warnings, host tests. A failed ID read in `Supported` stays silent (not known to be a ConnectX-3).
