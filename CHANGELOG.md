@@ -4,6 +4,9 @@
 
 <!-- New unreleased changes go here -->
 
+### 2026-11-10
+- **docs:** #16 status: stormbootx v0.41.0 pins v0.2.8 (stormbootx#195). No X9 blade has booted it yet, so a quiet server1 boot was asked of the master (`wait-hardware`).
+
 ### 2026-11-07
 - **fix:** The identify and Start error paths are logged (#7). A ConnectX-3 whose PCI I/O `GetLocation` fails is no longer refused silently: the failure is printed and the NIC is driven with location `?`. `Start` prints a failed PCI ID read and returns its status instead of `DEVICE_ERROR`.
 - **docs:** Spec §7.1 item 14 (#21): no own-frame loopback with LB_SRC_CHK 1. Six v0.2.5 rustnic boots (server1 ×4, server7, server8) got a DHCP lease through the ConnectX-3 port and none printed `own frame looped back`.
