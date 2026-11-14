@@ -126,8 +126,11 @@ Open:
 - [ ] #31 the stormnic port contract (owner, 2026-11-14): the driver brings its port up itself with the IEEE
   standard FEC for its media/speed and prints one line per port (driver, PCI address, MAC, media, speed, FEC,
   link). ConnectX-3 runs 1G/10G/40G (and 20G/56G, no IEEE FEC): the standard is **none** at every speed it runs,
-  and the spec defines no FEC command, so nothing is written. In progress: the per-port line gets `media`
-  (module EEPROM, 5.11.5), the rate and `fec none (standard for …)`; a port without link is an `ERROR` line.
+  and the spec defines no FEC command, so nothing is written. **Built in v0.3.0 (`398a1a4`, 2026-11-13):** the
+  per-port line has `media` (module EEPROM, 5.11.5), the rate and `fec none (standard for …)`; a port without link
+  is an `ERROR: … LINK DOWN` line. sc-build: both images, subsystem 11, clippy -D warnings, host tests 9 + 10 + 3,
+  repro-check (sha256 `86b6f4c0…`, 109056 bytes). Pin asked in stormbootx#208; #31 is proposed after it. Left: an
+  X9 rustnic boot (server1) at that pin showing the line with link up; then close #31.
 - [x] #7 identify/Start error paths logged (v0.2.8, `ae7b5d0`, 2026-11-07): `GetLocation` failure printed, NIC driven
   with location `?`; failed PCI ID read in `Start` printed, its status returned. sc-build: both images, no rustc or
   clippy warnings, host tests. A failed ID read in `Supported` stays silent (not known to be a ConnectX-3).
