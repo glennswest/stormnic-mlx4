@@ -202,10 +202,23 @@ By default (#16) the console gets **one line per port** when `Start`
 succeeds, plus every warning and error:
 
 ```
-stormnic-mlx4 0.2.5: 0000:05:00.0 15b3:1003 ConnectX-3 port 1: MAC f4:52:14:84:b7:e0, link up 10G XFI, SNP installed
+stormnic-mlx4 0.3.0: 0000:05:00.0 15b3:1003 ConnectX-3 port 1: MAC f4:52:14:84:b7:e0, media 10GBASE-CR (SFP+ passive DAC, 3 m), 10G, fec none (standard for 10G), link up, SNP installed
 ```
 
-(`no link` in place of `link up …` when the 5 s link wait ran out.)
+That line is the stormnic port contract (#31, the same for every stormnic
+driver): driver and version, PCI address, MAC, media, speed, FEC and link.
+The driver brings its ports up itself (SET_PORT, INIT_PORT, spec 5.3/5.5);
+stormbootx hands it nothing. **media** is from the module EEPROM (spec 5.11.5:
+`10GBASE-SR (SFP+)`, `40GBASE-CR4 (QSFP+ DAC, 1 m)`, `no module`, …).
+**FEC** is the IEEE standard FEC for the media and speed, which for every
+speed a ConnectX-3 runs is **none** (1G and below, 10G, 40G; 20G and 56G are
+not IEEE speeds); the spec gives no FEC command, so nothing is written.
+
+A port without link after the 5 s wait is an **error** line, never a quiet one:
+
+```
+stormnic-mlx4 0.3.0: 0000:05:00.0 15b3:1003 ConnectX-3 port 2: ERROR: MAC f4:52:14:84:b7:e1, media no module, speed ?, fec none (standard at every ConnectX-3 speed), LINK DOWN (no link in the bring-up wait; SNP says no media), SNP installed
+```
 
 **Verbose** prints the full trace: every decision about a ConnectX-3, every
 firmware command and its status, the QUERY_FW version and interface revision,
@@ -315,7 +328,7 @@ stormnic-mlx4: port 1: link up
   speed control: not offered (ETH_PROT_CTRL 0): no forced speed or autoneg setting on this card (5.13); set the switch port
   port 1: SNP installed on a child handle, MAC f4:52:14:84:b7:e0, media present
   Start: 1 SNP child handle(s) installed
-stormnic-mlx4 0.2.5: 0000:05:00.0 15b3:1003 ConnectX-3 port 1: MAC f4:52:14:84:b7:e0, link up 10G XFI, SNP installed
+stormnic-mlx4 0.3.0: 0000:05:00.0 15b3:1003 ConnectX-3 port 1: MAC f4:52:14:84:b7:e0, media 10GBASE-CR (SFP+ passive DAC, 3 m), 10G, fec none (standard for 10G), link up, SNP installed
 stormnic-mlx4: port 1 SNP: started
 stormnic-mlx4: port 1 SNP: initialized, media present
 stormnic-mlx4: port 1 SNP: receive filters 0x7, 1 multicast address(es)

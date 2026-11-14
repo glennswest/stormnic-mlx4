@@ -4,6 +4,9 @@
 
 <!-- New unreleased changes go here -->
 
+### 2026-11-13
+- **feat:** The per-port line follows the stormnic port contract (#31): driver, PCI address, MAC, **media** (from the module EEPROM, spec 5.11.5: `10GBASE-CR (SFP+ passive DAC, 3 m)`, `40GBASE-CR4 (QSFP+ DAC, 1 m)`, `10GBASE-SR (SFP+)`, `no module`, …), **speed** as a rate (`10G`, not `10G XFI`), **FEC** (`fec none (standard for 10G)`) and link. The IEEE standard FEC at every speed a ConnectX-3 runs (1G and below, 10G, 40G; 20G/56G are not IEEE speeds) is none, and the spec defines no FEC command, so the driver writes nothing. A port without link after the bring-up wait is an `ERROR:` line with `LINK DOWN`. New `module::media`, `media_unread`, `rate`, `standard_fec`; host test `test/module.rs` 8 → 10.
+
 ### 2026-11-10
 - **docs:** #16 status: stormbootx v0.41.0 pins v0.2.8 (stormbootx#195). No X9 blade has booted it yet, so a quiet server1 boot was asked of the master (`wait-hardware`).
 
