@@ -48,7 +48,7 @@ No standalone component golden. The owner approved shipping inside stormbootx's
 the mlx4 integration: `scripts/build-nic-drivers.sh` builds this crate at the
 pin, and the `stormbootx-rustnic` media (`STORMNIC_DRIVERS`, default `ixgbe mlx4`)
 carries it. stormbootx ships no iPXE on any medium (stormbootx#91). The pin was `cf37f8b` (v0.2.1) as of 2026-10-04;
-stormbootx#66 pinned v0.2.3 (`0e50017`); stormbootx#104 asks for v0.2.5 (`04e7d2c`; first asked for v0.2.4). `--drivers DIR` is the manual media assembly
+stormbootx#66 pinned v0.2.3 (`0e50017`); stormbootx#104 pinned v0.2.5 (`04e7d2c`); stormbootx#195 pinned v0.2.8 (`f3d3bc2`, stormbootx v0.41.0); stormbootx#208 asks for v0.3.0. `--drivers DIR` is the manual media assembly
 interface, not a way to retain an sc-build artifact. sc-build keeps no image.
 The media/golden work belongs to stormbootx; do not create a persistent build
 checkout or copy artifacts out of sc-build.

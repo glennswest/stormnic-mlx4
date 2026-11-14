@@ -40,7 +40,7 @@ from iPXE's hermon (GPL). The crate is MIT.
 
 ## Build
 
-`x86_64-unknown-uefi`, built on dev with `sc-build` after pushing:
+`x86_64-unknown-uefi`, built with `sc-build` (a fresh build VM) after pushing:
 
 ```bash
 sc-build 'cargo build --locked --release --target x86_64-unknown-uefi && scripts/pe-subsystem.sh "${CARGO_TARGET_DIR:-target}"/x86_64-unknown-uefi/release/stormnic-mlx4.efi'
@@ -120,7 +120,8 @@ code against simulated firmware (`test/bars.rs`: EDK2 and AMI BAR numbering) and
 the link-diagnostics decoding (`test/module.rs`: module EEPROM fields, MAD
 status codes, request splitting, PTYS link modes; spec 5.11–5.12) and the
 quiet console's replay ring (`test/trace.rs`, #16).
-Run it on dev through `sc-build 'scripts/test-host.sh'`.
+The media and rate names of the per-port line (#31) are in `test/module.rs`.
+Run it through `sc-build 'scripts/test-host.sh'`.
 
 ## How it ships
 
@@ -132,13 +133,13 @@ it, with no iPXE. The stormbootx (fw) medium, for machines whose firmware has it
 own NIC driver, carries no drivers at all (stormbootx#52, #91). This repository has no
 standalone component golden, and sc-build retains no artifacts.
 
-The pin is `0e50017` (v0.2.3: the link and module lines, and the own-frame line
-for spec 7 item 14; stormbootx#66). stormbootx#104 asks for v0.2.5 (`04e7d2c`:
-the module EEPROM, PTYS and speed-control lines of #17, and the quiet console of
-#16; boot verbose for the hardware checks). A boot of the rustnic media is the hardware
-check: stormbootx prints `tcp4 : smoltcp over SNP (...)` with this driver's
-`port N SNP: initialized` and `port N rx:` lines behind it. The master handles
-the media boot and console capture.
+stormbootx pins v0.2.8 (`f3d3bc2`, stormbootx#195, stormbootx v0.41.0: the
+quiet console of #16 and the identify/Start error lines of #7). v0.3.0 (the
+stormnic port-contract line, #31) is asked in stormbootx#208. A boot of the
+rustnic media is the hardware check: stormbootx prints `tcp4 : smoltcp over SNP
+(...)` with this driver's per-port line (and, verbose, its `port N SNP:
+initialized` and `port N rx:` lines) behind it. The master handles the media
+boot and console capture.
 
 ## Status
 
@@ -149,10 +150,12 @@ bring-up, steering, the SNP and a transmitted DHCP discover; on server1 the
 ConnectX-3 reached link at 10G. From 2026-10-02, rustnic boots of server3 and
 server8 at v0.2.1 receive through this driver. They get a DHCP lease, and on
 server3 also claim and attach the boot image over it. Spec section 7.1 records
-hardware checks 1–13 from those boots (#18). Item 14 waits for a boot at v0.2.3
-(#21), item 16 is recorded (no L_Key collision), item 15 waits for the booted
-kernel to reach the X9 SOL (#12, stormcos#220), and items 17–18 (module EEPROM, PTYS) wait for a boot
-at v0.2.4 (#17).
+hardware checks 1–14 and 16 from those boots (#18, #21: no own-frame loopback;
+no L_Key collision). Item 15: the orderly ExitBootServices teardown is verified
+from the OS side (about 40 boots, `mlx4_core` probes cleanly); the
+bus-master-only fallback is not yet exercised (#12). Items 17–18 (module EEPROM,
+PTYS) wait for a verbose X9 boot (#17), and the v0.3.0 per-port line for an X9
+boot at the new pin (#31).
 The image is an EFI boot-service driver (`build.rs` sets the PE subsystem;
 `scripts/pe-subsystem.sh IMAGE` checks it is 11). Its entry point installs
 `EFI_DRIVER_BINDING_PROTOCOL` and returns.
@@ -291,7 +294,7 @@ link, boot verbose.**
 A verbose start looks like
 
 ```
-stormnic-mlx4 0.2.5: driver binding installed (15b3:1003 ConnectX-3, 15b3:1007 ConnectX-3 Pro)
+stormnic-mlx4 0.3.0: driver binding installed (15b3:1003 ConnectX-3, 15b3:1007 ConnectX-3 Pro)
 stormnic-mlx4: 0000:05:00.0 15b3:1003 ConnectX-3: Supported
 stormnic-mlx4: 0000:05:00.0 15b3:1003 ConnectX-3:
   Start: bound; bringing up the firmware
@@ -312,7 +315,6 @@ stormnic-mlx4: 0000:05:00.0 15b3:1003 ConnectX-3:
   steering: multicast ff:ff:ff:ff:ff:ff -> QP ... (MCG entry ..., hash ...)
   SET_MCAST_FLTR (0x1): ok
   port 1: up, link down
-stormnic-mlx4: port 1: link up
   link up on every Ethernet port after 2300 ms
   port 1: link up, speed code 0x01 (10G XFI), autoneg enabled, complete
   port 1: module: transceiver type 0x.., vendor OUI ..:..:.., wavelength ..., code 0x...

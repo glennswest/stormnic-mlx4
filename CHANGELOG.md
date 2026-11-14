@@ -4,6 +4,9 @@
 
 <!-- New unreleased changes go here -->
 
+### 2026-11-14
+- **docs:** README refreshed from the code since 2026-11-07: shipping pin (v0.2.8 pinned, v0.3.0 asked in stormbootx#208), Status (hardware checks 14–16 as recorded in spec §7.1), the verbose example (v0.3.0, no `link up` line during the bring-up wait), build/test no longer say "dev". CLAUDE.md pin line brought up to date.
+
 ### 2026-11-13
 - **feat:** The per-port line follows the stormnic port contract (#31): driver, PCI address, MAC, **media** (from the module EEPROM, spec 5.11.5: `10GBASE-CR (SFP+ passive DAC, 3 m)`, `40GBASE-CR4 (QSFP+ DAC, 1 m)`, `10GBASE-SR (SFP+)`, `no module`, …), **speed** as a rate (`10G`, not `10G XFI`), **FEC** (`fec none (standard for 10G)`) and link. The IEEE standard FEC at every speed a ConnectX-3 runs (1G and below, 10G, 40G; 20G/56G are not IEEE speeds) is none, and the spec defines no FEC command, so the driver writes nothing. A port without link after the bring-up wait is an `ERROR:` line with `LINK DOWN`. New `module::media`, `media_unread`, `rate`, `standard_fec`; host test `test/module.rs` 8 → 10.
 
