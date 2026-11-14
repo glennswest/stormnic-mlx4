@@ -57,11 +57,12 @@ fn read(hca: &mut Hca, pci: &mut PciIo, port: u8, addr: usize, out: &mut [u8]) -
 /// Read and print the module EEPROM of `port` (5.11; spec 7 item 17): the
 /// identifier with both statuses, then the raw bytes and their SFF labels.
 /// `loud`: on the console even when quiet (a port without link).
-pub fn module(hca: &mut Hca, pci: &mut PciIo, port: u8, loud: bool) {
-    optional(hca, |hca| module_quiet(hca, pci, port, loud));
+/// Returns the port's media for its one line (#31).
+pub fn module(hca: &mut Hca, pci: &mut PciIo, port: u8, loud: bool) -> String {
+    optional(hca, |hca| module_quiet(hca, pci, port, loud))
 }
 
-fn module_quiet(hca: &mut Hca, pci: &mut PciIo, port: u8, loud: bool) {
+fn module_quiet(hca: &mut Hca, pci: &mut PciIo, port: u8, loud: bool) -> String {
     let p = alloc::format!("port {port}: module EEPROM: ");
     let mut e = [0u8; 256];
     // The identifier first, 1 byte at device address 0 (5.11.4 item 1).
@@ -71,17 +72,17 @@ fn module_quiet(hca: &mut Hca, pci: &mut PciIo, port: u8, loud: bool) {
         Err(e) => {
             let _ = hca.cmd::<()>(Err(e));
             note!(loud, "  {p}MAD_IFC 0xFF60: {e}; module not readable");
-            return;
+            return "module not readable".into();
         }
     };
     if status != 0 {
         note!(loud, "  {p}HCR status 0, MAD status {status:#06x}: {}", module::mad_error(status));
-        return;
+        return module::media_unread(status).into();
     }
     let id = e[0];
     let Some(kind) = module::kind(id) else {
         note!(loud, "  {p}HCR status 0, MAD status 0, identifier {id:#04x}: not SFP or QSFP; not read further");
-        return;
+        return alloc::format!("module identifier {id:#04x}");
     };
     note!(loud, "  {p}HCR status 0, MAD status 0, identifier {id:#04x} ({kind})");
     let mut text = String::new();
@@ -92,12 +93,12 @@ fn module_quiet(hca: &mut Hca, pci: &mut PciIo, port: u8, loud: bool) {
                 Ok(0) => {}
                 Ok(s) => {
                     note!(loud, "  {p}bytes {addr}-{}: MAD status {s:#06x}: {}", addr + size - 1, module::mad_error(s));
-                    return;
+                    return alloc::format!("{kind}, EEPROM not fully read");
                 }
                 Err(e) => {
                     let _ = hca.cmd::<()>(Err(e));
                     note!(loud, "  {p}bytes {addr}-{}: MAD_IFC: {e}", addr + size - 1);
-                    return;
+                    return alloc::format!("{kind}, EEPROM not fully read");
                 }
             }
         }
@@ -105,6 +106,9 @@ fn module_quiet(hca: &mut Hca, pci: &mut PciIo, port: u8, loud: bool) {
     }
     let _ = module::describe(&mut text, &e);
     print_lines(loud, &p, &text);
+    let mut media = String::new();
+    let _ = module::media(&mut media, &e);
+    media
 }
 
 /// Query PTYS for `port` with ACCESS_REG, read-only (5.12), and print the

@@ -240,3 +240,94 @@ pub fn describe_ptys<W: Write>(w: &mut W, r: &[u8; PTYS_LEN]) -> fmt::Result {
     writeln!(w, "operating   {}", Modes(be32(0x24)))?;
     writeln!(w, "partner     {}", Modes(be32(0x30)))
 }
+
+/// The port's media for its one line (#31), from the SFF fields of 5.11.5:
+/// the Ethernet type the module is built for, and for a cable its kind and
+/// length. Short, no newline.
+pub fn media<W: Write>(w: &mut W, e: &[u8; 256]) -> fmt::Result {
+    let id = e[0];
+    match id {
+        0x03 => {
+            let len = e[18];
+            let ten = e[12] >= 100; // about 103 (x 100 MBd) for 10G (5.11.5)
+            if e[8] & 0x04 != 0 {
+                if ten {
+                    write!(w, "10GBASE-CR (SFP+ passive DAC, {len} m)")
+                } else {
+                    write!(w, "SFP passive copper cable, {len} m")
+                }
+            } else if e[8] & 0x08 != 0 {
+                write!(w, "SFP+ active cable, {len} m")
+            } else if let Some(t) = bit_name(e[3] >> 4, &["10GBASE-SR", "10GBASE-LR", "10GBASE-LRM", "10GBASE-ER"]) {
+                write!(w, "{t} (SFP+)")
+            } else if let Some(t) = bit_name(e[6], &["1000BASE-SX", "1000BASE-LX", "1000BASE-CX", "1000BASE-T"]) {
+                write!(w, "{t} (SFP)")
+            } else {
+                w.write_str("SFP/SFP+, Ethernet type not stated")
+            }
+        }
+        0x0c | 0x0d | 0x11 => {
+            let k = kind(id).unwrap_or("QSFP");
+            let len = e[146];
+            let c = e[131];
+            if c & 0x08 != 0 {
+                write!(w, "40GBASE-CR4 ({k} DAC, {len} m)")
+            } else if let Some(t) = bit_name(c >> 1, &["40GBASE-LR4", "40GBASE-SR4"]) {
+                write!(w, "{t} ({k})")
+            } else if c & 0x01 != 0 {
+                write!(w, "40G active cable ({k}, {len} m)")
+            } else if let Some(t) = bit_name(c >> 4, &["10GBASE-SR", "10GBASE-LR", "10GBASE-LRM"]) {
+                write!(w, "{t} ({k})")
+            } else if e[147] >> 4 >= 0xa {
+                write!(w, "{k} copper cable, {len} m")
+            } else {
+                write!(w, "{k} optical, Ethernet type not stated")
+            }
+        }
+        _ => write!(w, "module identifier {id:#04x}"),
+    }
+}
+
+/// The name of the lowest set bit of `bits` that `names` covers.
+fn bit_name(bits: u8, names: &[&'static str]) -> Option<&'static str> {
+    names.iter().enumerate().find(|&(i, _)| bits & (1 << i) != 0).map(|(_, n)| *n)
+}
+
+/// The media when the EEPROM could not be read, from the MAD status (5.11.3).
+pub fn media_unread(status: u16) -> &'static str {
+    match status >> 8 {
+        0x03 => "no module",
+        0x04 => "passive copper cable (no EEPROM)",
+        _ => "module not readable",
+    }
+}
+
+/// The rate of a QUERY_PORT speed code (5.8), for the port's one line.
+pub fn rate(code: u8) -> &'static str {
+    match code {
+        0x00 | 0x01 => "10G",
+        0x02 => "1G",
+        0x04 => "100M",
+        0x08 => "20G",
+        0x20 => "56G",
+        0x40 => "40G",
+        _ => "?",
+    }
+}
+
+/// The FEC the port runs and why (#31: the IEEE standard FEC for the
+/// media/speed; owner, 2026-11-14). Every speed a ConnectX-3 runs has none:
+/// 1G and below, 10G and 40G have no FEC by standard, and 20G/56G are not
+/// IEEE speeds, so there is none to apply. The spec gives no FEC command
+/// (5.3, 5.12), so the driver writes nothing. `rate` is `rate()`'s answer,
+/// or "" when the port has no link yet.
+pub fn standard_fec(rate: &str) -> (&'static str, &'static str) {
+    let why = match rate {
+        "100M" | "1G" => "standard for 1G and below",
+        "10G" => "standard for 10G",
+        "40G" => "standard for 40G",
+        "20G" | "56G" => "no IEEE FEC at this speed",
+        _ => "standard at every ConnectX-3 speed",
+    };
+    ("none", why)
+}

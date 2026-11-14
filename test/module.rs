@@ -133,3 +133,73 @@ fn ptys_register() {
     assert_eq!(lines[3], "operating   0x00001000 (10GBASE-CR)");
     assert_eq!(lines[4], "partner     0x00000000 (none)");
 }
+
+fn media_of(e: &[u8; 256]) -> String {
+    let mut s = String::new();
+    media(&mut s, e).unwrap();
+    s
+}
+
+#[test]
+fn media_labels_for_the_port_line() {
+    // #31: SFP+ DAC, SFP+ optics, 1G SFP.
+    let mut e = [0u8; 256];
+    e[0] = 0x03;
+    e[8] = 0x04;
+    e[12] = 103;
+    e[18] = 3;
+    assert_eq!(media_of(&e), "10GBASE-CR (SFP+ passive DAC, 3 m)");
+    e[8] = 0x08;
+    assert_eq!(media_of(&e), "SFP+ active cable, 3 m");
+    e[8] = 0;
+    e[3] = 0x10;
+    assert_eq!(media_of(&e), "10GBASE-SR (SFP+)");
+    e[3] = 0x20;
+    assert_eq!(media_of(&e), "10GBASE-LR (SFP+)");
+    e[3] = 0;
+    e[6] = 0x08;
+    assert_eq!(media_of(&e), "1000BASE-T (SFP)");
+    e[6] = 0;
+    assert_eq!(media_of(&e), "SFP/SFP+, Ethernet type not stated");
+
+    // QSFP+: CR4 DAC, SR4, LR4, active cable.
+    let mut q = [0u8; 256];
+    q[0] = 0x0d;
+    q[146] = 1;
+    q[131] = 0x08;
+    assert_eq!(media_of(&q), "40GBASE-CR4 (QSFP+ DAC, 1 m)");
+    q[131] = 0x04;
+    assert_eq!(media_of(&q), "40GBASE-SR4 (QSFP+)");
+    q[131] = 0x02;
+    assert_eq!(media_of(&q), "40GBASE-LR4 (QSFP+)");
+    q[131] = 0x01;
+    assert_eq!(media_of(&q), "40G active cable (QSFP+, 1 m)");
+    q[131] = 0;
+    q[147] = 0xb0;
+    assert_eq!(media_of(&q), "QSFP+ copper cable, 1 m");
+
+    let mut x = [0u8; 256];
+    x[0] = 0x01;
+    assert_eq!(media_of(&x), "module identifier 0x01");
+
+    assert_eq!(media_unread(0x0300), "no module");
+    assert_eq!(media_unread(0x0400), "passive copper cable (no EEPROM)");
+    assert_eq!(media_unread(0x0900), "module not readable");
+}
+
+#[test]
+fn rates_and_the_standard_fec() {
+    assert_eq!(rate(0x00), "10G");
+    assert_eq!(rate(0x01), "10G");
+    assert_eq!(rate(0x02), "1G");
+    assert_eq!(rate(0x40), "40G");
+    assert_eq!(rate(0x20), "56G");
+    assert_eq!(rate(0x7f), "?");
+    // #31: no IEEE FEC at any ConnectX-3 speed.
+    for r in ["100M", "1G", "10G", "20G", "40G", "56G", "?", ""] {
+        assert_eq!(standard_fec(r).0, "none", "{r}");
+    }
+    assert_eq!(standard_fec("10G").1, "standard for 10G");
+    assert_eq!(standard_fec("40G").1, "standard for 40G");
+    assert_eq!(standard_fec("56G").1, "no IEEE FEC at this speed");
+}

@@ -10,6 +10,7 @@
 //! Object numbers are per port (4.1), so both ports can be up at once.
 
 use alloc::collections::VecDeque;
+use alloc::string::String;
 use alloc::vec;
 use alloc::vec::Vec;
 use core::sync::atomic::{fence, Ordering};
@@ -217,9 +218,11 @@ pub struct Port {
     num: u8,
     mac: [u8; 6],
     link_up: bool,
-    /// The speed QUERY_PORT reported when it last saw link (3.5), for the
-    /// one-line summary.
+    /// The rate QUERY_PORT reported when it last saw link (3.5,
+    /// `module::rate`), or "", for the one-line summary.
     speed: &'static str,
+    /// The module, from its EEPROM when last read (5.11, `module::media`).
+    media: String,
     uar: u32,
     /// PCI I/O's `BarIndex` for the UAR BAR (`Hca::uar_bar`).
     uar_bar: u8,
@@ -329,7 +332,7 @@ impl Eth {
             return;
         }
         let num = self.ports[i].num;
-        diag::module(hca, pci, num, loud);
+        self.ports[i].media = diag::module(hca, pci, num, loud);
         if self.ptys_answers != Some(false) && !hca.broken() {
             self.ptys_answers = Some(diag::ptys(hca, pci, num, self.ptys_offered, loud));
         }
@@ -344,7 +347,7 @@ impl Eth {
             Ok(info) => {
                 info.print_link(!info.link_up);
                 if info.link_up {
-                    self.ports[i].speed = info.speed_name();
+                    self.ports[i].speed = crate::module::rate(info.speed);
                 }
             }
             Err(_) => say!("  port {}: QUERY_PORT failed; no link details", self.ports[i].num),
@@ -643,6 +646,7 @@ fn port_up(hca: &mut Hca, pci: &mut PciIo, sh: &mut Shared, s: &Setup, p: &PortI
         mac: p.mac,
         link_up: p.link_up,
         speed: "",
+        media: String::from("module not read"),
         uar: sh.uar,
         uar_bar: hca.uar_bar,
         lkey: sh.lkey,
@@ -873,9 +877,14 @@ impl Port {
         self.link_up
     }
 
-    /// The speed last seen with link, or "" (`report_link`).
+    /// The rate last seen with link, or "" (`report_link`).
     pub fn speed(&self) -> &'static str {
         self.speed
+    }
+
+    /// The module's media, as last read (`diagnose`).
+    pub fn media(&self) -> &str {
+        &self.media
     }
 
     fn set_link(&mut self, up: bool) {

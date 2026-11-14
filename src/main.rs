@@ -308,21 +308,25 @@ unsafe extern "efiapi" fn start(
     }
     b.nics.push(nic);
     trace!("  Start: {} SNP child handle(s) installed", n.children.len());
-    // The default console output: one line per port (#16).
+    // The default console output: one line per port (#16), the stormnic
+    // port contract (#31): driver, PCI address, MAC, media, speed, FEC, link.
+    // A port without link is an ERROR line, never a quiet one.
     let version = env!("CARGO_PKG_VERSION");
     for c in &n.children {
         let p = &n.eth.ports[c.port];
         let m = p.mac();
-        let link = match (p.link_up(), p.speed()) {
-            (true, "") => "link up".into(),
-            (true, s) => alloc::format!("link up {s}"),
-            (false, _) => "no link".into(),
+        let (fec, why) = module::standard_fec(p.speed());
+        let (err, speed, link) = match (p.link_up(), p.speed()) {
+            (true, "") => ("", "speed ?", "link up"),
+            (true, s) => ("", s, "link up"),
+            (false, _) => ("ERROR: ", "speed ?", "LINK DOWN (no link in the bring-up wait; SNP says no media)"),
         };
         say!(
-            "stormnic-mlx4 {version}: {} port {}: MAC {:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}, {link}, SNP installed",
+            "stormnic-mlx4 {version}: {} port {}: {err}MAC {:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}, media {}, {speed}, fec {fec} ({why}), {link}, SNP installed",
             &tag["stormnic-mlx4: ".len()..],
             p.num(),
-            m[0], m[1], m[2], m[3], m[4], m[5]
+            m[0], m[1], m[2], m[3], m[4], m[5],
+            p.media()
         );
     }
     Status::SUCCESS
