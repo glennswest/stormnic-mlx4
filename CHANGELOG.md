@@ -72,6 +72,14 @@
 - **docs:** #1 recheck: server1 has still not booted the rustnic media; pass accepts 0.1.0 or 0.2.0, current golden named (work plan).
 - **docs:** #4 waits on stormbootx#50 (pin v0.2.0 on the rustnic media) for the server1 `tcp4 : available` check
 
+## [v0.3.0] — 2026-11-13
+
+### Added
+- The per-port line is the stormnic port contract (#31): driver, PCI address, MAC, media (module EEPROM), speed, FEC (`none`, the IEEE standard at every ConnectX-3 speed; nothing to write) and link. A port without link is an `ERROR:` line.
+
+### Changed
+- The speed in the per-port line is a rate (`10G`), not QUERY_PORT's name (`10G XFI`); `no link` became `ERROR: … LINK DOWN …`.
+
 ## [v0.2.8] — 2026-11-07
 
 ### Fixed
