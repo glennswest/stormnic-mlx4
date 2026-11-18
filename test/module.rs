@@ -68,7 +68,7 @@ fn sfp_passive_dac() {
         lines[2],
         "vendor \"Mellanox\" OUI 00:02:c9, part \"MC3309130-003\" rev \"A1\", serial \"SN0123\""
     );
-    assert!(lines[3].ends_with("diagnostics not implemented (byte 92 0x00)"), "{}", lines[3]);
+    assert!(lines[3].ends_with("diagnostics absent (byte 92 0x00)"), "{}", lines[3]);
 
     let mut d = String::new();
     dump(&mut d, &e, 0, 96).unwrap();

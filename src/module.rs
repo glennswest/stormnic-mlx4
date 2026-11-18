@@ -137,7 +137,7 @@ pub fn describe<W: Write>(w: &mut W, e: &[u8; 256]) -> fmt::Result {
                 "cable compliance {:02x} {:02x} (bytes 60-61), diagnostics {} (byte 92 {:#04x})",
                 e[60],
                 e[61],
-                if e[92] & 0x40 != 0 { "implemented" } else { "not implemented" },
+                if e[92] & 0x40 != 0 { "present" } else { "absent" },
                 e[92]
             )
         }

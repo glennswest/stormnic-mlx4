@@ -4,6 +4,9 @@
 
 <!-- New unreleased changes go here -->
 
+### 2026-11-18
+- **fix:** The SFP module EEPROM trace line said `diagnostics not implemented` for a module whose byte 92 bit 6 (digital diagnostic monitoring, spec 5.11) is clear. That describes the module, not the driver, but read like a stub (#33, stormcentral#1455); it now says `diagnostics present` / `diagnostics absent`. No `not implemented` text remains outside tests.
+
 ### 2026-11-14
 - **docs:** README refreshed from the code since 2026-11-07: shipping pin (v0.2.8 pinned, v0.3.0 asked in stormbootx#208), Status (hardware checks 14–16 as recorded in spec §7.1), the verbose example (v0.3.0, no `link up` line during the bring-up wait), build/test no longer say "dev". CLAUDE.md pin line brought up to date.
 

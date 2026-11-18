@@ -324,7 +324,7 @@ stormnic-mlx4: 0000:05:00.0 15b3:1003 ConnectX-3:
   port 1: module EEPROM: SFP/SFP+: passive copper cable (byte 8 0x04), connector 0x21 (copper pigtail)
   port 1: module EEPROM: length 3 m (byte 18), nominal rate 10300 MBd (byte 12), ...
   port 1: module EEPROM: vendor "..." OUI ..:..:.., part "..." rev "..", serial "..."
-  port 1: module EEPROM: cable compliance .. .. (bytes 60-61), diagnostics ... (byte 92 0x..)
+  port 1: module EEPROM: cable compliance .. .. (bytes 60-61), diagnostics present|absent (byte 92 0x..)
   port 1: PTYS: not offered (QUERY_DEV_CAP 0x7a bit 5, ETH_PROT_CTRL, is 0); one read-only query for spec 7 item 18
   port 1: PTYS: ... (the firmware's answer, or its status)
   speed control: not offered (ETH_PROT_CTRL 0): no forced speed or autoneg setting on this card (5.13); set the switch port
