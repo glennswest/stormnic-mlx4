@@ -35,6 +35,7 @@ mod hcr;
 mod module;
 mod pci;
 mod snp;
+mod teardown;
 mod trace;
 
 use alloc::boxed::Box;
@@ -298,8 +299,13 @@ unsafe extern "efiapi" fn start(
     if st.is_error() {
         // Without it the device would keep DMA running into the OS's memory.
         alarm!("{tag}: Start: ExitBootServices event: {st:?}; releasing the NIC");
-        for c in n.children.iter_mut() {
-            c.uninstall(agent, controller);
+        n.children.retain_mut(|c| !c.uninstall(agent, controller));
+        if !n.children.is_empty() {
+            // The firmware still points into a child (#34): keep the NIC and
+            // its children for Stop to take down rather than free them.
+            alarm!("{tag}: Start: {} child handle(s) refused to go; NIC kept for Stop", n.children.len());
+            b.nics.push(nic);
+            return Status::DEVICE_ERROR;
         }
         let n = *unsafe { Box::from_raw(nic) };
         fw::close(n.hca, unsafe { &mut *n.pci });

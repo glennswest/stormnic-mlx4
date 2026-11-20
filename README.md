@@ -119,7 +119,8 @@ The shipped image is the default build. Use the variable to make it verbose.
 code against simulated firmware (`test/bars.rs`: EDK2 and AMI BAR numbering) and
 the link-diagnostics decoding (`test/module.rs`: module EEPROM fields, MAD
 status codes, request splitting, PTYS link modes; spec 5.11–5.12) and the
-quiet console's replay ring (`test/trace.rs`, #16).
+quiet console's replay ring (`test/trace.rs`, #16) and the child teardown
+order under firmware refusals (`test/teardown.rs`, #34).
 The media and rate names of the per-port line (#31) are in `test/module.rs`.
 Run it through `sc-build 'scripts/test-host.sh'`.
 
@@ -180,7 +181,11 @@ The image is an EFI boot-service driver (`build.rs` sets the PE subsystem;
   through MAD_IFC, spec 5.11, and a read-only ACCESS_REG PTYS query, spec 5.12),
   then installs the SNP children (`src/snp.rs`) and keeps the device. It never
   forces a speed: the PTYS write of spec 5.13 is not used.
-- `Stop` uninstalls the children (when asked for them), then tears the device
+- `Stop` uninstalls the children (when asked for them): the SNP, then the
+  device path. A child is freed only when both are gone; if the firmware
+  refuses either, the SNP is installed again, the child is kept and `Stop`
+  returns `DEVICE_ERROR` (`device path uninstall refused (...), child kept`;
+  `src/teardown.rs`, #34). With no children left it tears the device
   down: CLOSE_PORT, 2RST_QP, HW2SW_CQ per port, HW2SW_MPT, CONF_SPECIAL_QP 0,
   MAP_EQ unmap, HW2SW_EQ, CLOSE_HCA, UNMAP_ICM, UNMAP_ICM_AUX, UNMAP_FA,
   release ownership (1 s wait) and restore the PCI attributes. If a command

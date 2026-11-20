@@ -133,6 +133,10 @@ Open:
   `golden-stormbootx-rustnic-3a9c7bf19e9aba2d`, `mlx4@398a1a4`). 2026-11-14: no X9 SOL capture at that pin (server1/2/8
   still show 0.2.5). Asked the master with `wait-hardware` (server1, that golden). Left: that boot showing the line with
   link up; then close #31.
+- [ ] #34 review finding 04121d04251f (P0): a child freed while its device path was still installed. Fix: `src/teardown.rs`
+  (rollback on a refused path uninstall, child kept), `Child::uninstall` and Start's EBS-failure path use it; host test
+  `test/teardown.rs`. Then sc-build (both images, clippy, host tests, repro-check) and close #34. Majors 0ccfe0c92f79,
+  627bcdb9b490, 6aeccbfbe450 follow as P1.
 - [x] #7 identify/Start error paths logged (v0.2.8, `ae7b5d0`, 2026-11-07): `GetLocation` failure printed, NIC driven
   with location `?`; failed PCI ID read in `Start` printed, its status returned. sc-build: both images, no rustc or
   clippy warnings, host tests. A failed ID read in `Supported` stays silent (not known to be a ConnectX-3).

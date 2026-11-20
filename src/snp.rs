@@ -23,6 +23,7 @@ use uefi_raw::{Boolean, Event, Handle, IpAddress, MacAddress};
 use crate::eth::{self, Mac, Send};
 use crate::pci::PciIo;
 use uefi::Identify;
+use crate::teardown::{self, Outcome, Steps};
 use crate::{bs, Nic, TplGuard, OPEN_BY_CHILD_CONTROLLER};
 
 /// `EFI_SIMPLE_NETWORK_PROTOCOL_REVISION`.
@@ -211,24 +212,26 @@ impl Child {
     }
 
     /// Take the child down: close the parent's PCI I/O, uninstall the SNP
-    /// and the device path. False (and the child left as it was) when the
-    /// firmware refuses, e.g. because MNP will not let go of the SNP.
+    /// and the device path (`teardown::take_down`). True only when both are
+    /// gone, so the caller may free the child. False when the firmware
+    /// refuses either: the SNP is installed again and the child must be kept,
+    /// because the firmware still points into it (finding 04121d04251f, #34).
     pub fn uninstall(&mut self, agent: Handle, controller: Handle) -> bool {
-        let bs = bs();
-        let (path_guid, snp_guid) = (DevicePathProtocol::GUID, SimpleNetworkProtocol::GUID);
-        unsafe {
-            let _ = (bs.close_protocol)(controller, &PciIo::GUID, agent, self.handle);
-            let st = (bs.uninstall_protocol_interface)(self.handle, &snp_guid, (&raw const self.snp).cast());
-            if st.is_error() {
-                let mut iface: *mut c_void = ptr::null_mut();
-                let _ = (bs.open_protocol)(controller, &PciIo::GUID, &mut iface, agent, self.handle, OPEN_BY_CHILD_CONTROLLER);
-                say!("stormnic-mlx4: port child: SNP uninstall refused ({st:?})");
-                return false;
+        let mut steps = ChildSteps { c: self, agent, controller };
+        match teardown::take_down(&mut steps) {
+            Outcome::Gone => true,
+            Outcome::SnpRefused(st) => {
+                say!("stormnic-mlx4: port child: SNP uninstall refused ({st:?}), child kept");
+                false
             }
-            let _ = (bs.uninstall_protocol_interface)(self.handle, &path_guid, self.path.as_ptr().cast());
-            let _ = (bs.close_event)(self.snp.wait_for_packet);
+            Outcome::PathRefused { err, reinstalled } => {
+                say!("stormnic-mlx4: port child: device path uninstall refused ({err:?}), child kept");
+                if let Err(st) = reinstalled {
+                    alarm!("stormnic-mlx4: port child: SNP reinstall after that: {st:?}");
+                }
+                false
+            }
         }
-        true
     }
 
     fn port(&mut self) -> &mut eth::Port {
@@ -647,5 +650,53 @@ unsafe extern "efiapi" fn wait_notify(event: Event, ctx: *mut c_void) {
     }
     if c.mode.state == NetworkState::INITIALIZED && c.port().rx_ready() {
         let _ = unsafe { (bs().signal_event)(event) };
+    }
+}
+
+/// The boot-service calls `teardown::take_down` makes for one child.
+struct ChildSteps<'a> {
+    c: &'a mut Child,
+    agent: Handle,
+    controller: Handle,
+}
+
+fn ok(st: Status) -> Result<(), Status> {
+    if st.is_error() { Err(st) } else { Ok(()) }
+}
+
+impl Steps for ChildSteps<'_> {
+    type Error = Status;
+    fn close_pci(&mut self) {
+        let _ = unsafe { (bs().close_protocol)(self.controller, &PciIo::GUID, self.agent, self.c.handle) };
+    }
+    fn reopen_pci(&mut self) {
+        let mut iface: *mut c_void = ptr::null_mut();
+        let _ = unsafe {
+            (bs().open_protocol)(self.controller, &PciIo::GUID, &mut iface, self.agent, self.c.handle, OPEN_BY_CHILD_CONTROLLER)
+        };
+    }
+    fn uninstall_snp(&mut self) -> Result<(), Status> {
+        ok(unsafe {
+            (bs().uninstall_protocol_interface)(self.c.handle, &SimpleNetworkProtocol::GUID, (&raw const self.c.snp).cast())
+        })
+    }
+    fn reinstall_snp(&mut self) -> Result<(), Status> {
+        let mut h = self.c.handle;
+        ok(unsafe {
+            (bs().install_protocol_interface)(
+                &mut h,
+                &SimpleNetworkProtocol::GUID,
+                InterfaceType::NATIVE_INTERFACE,
+                (&raw const self.c.snp).cast(),
+            )
+        })
+    }
+    fn uninstall_path(&mut self) -> Result<(), Status> {
+        ok(unsafe {
+            (bs().uninstall_protocol_interface)(self.c.handle, &DevicePathProtocol::GUID, self.c.path.as_ptr().cast())
+        })
+    }
+    fn close_event(&mut self) {
+        let _ = unsafe { (bs().close_event)(self.c.snp.wait_for_packet) };
     }
 }
