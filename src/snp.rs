@@ -218,20 +218,20 @@ impl Child {
     /// because the firmware still points into it (finding 04121d04251f, #34).
     pub fn uninstall(&mut self, agent: Handle, controller: Handle) -> bool {
         let mut steps = ChildSteps { c: self, agent, controller };
-        match teardown::take_down(&mut steps) {
-            Outcome::Gone => true,
+        let outcome = teardown::take_down(&mut steps);
+        match &outcome {
+            Outcome::Gone => {}
             Outcome::SnpRefused(st) => {
                 say!("stormnic-mlx4: port child: SNP uninstall refused ({st:?}), child kept");
-                false
             }
             Outcome::PathRefused { err, reinstalled } => {
                 say!("stormnic-mlx4: port child: device path uninstall refused ({err:?}), child kept");
                 if let Err(st) = reinstalled {
                     alarm!("stormnic-mlx4: port child: SNP reinstall after that: {st:?}");
                 }
-                false
             }
         }
+        outcome.freeable()
     }
 
     fn port(&mut self) -> &mut eth::Port {
