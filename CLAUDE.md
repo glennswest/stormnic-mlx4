@@ -48,7 +48,7 @@ No standalone component golden. The owner approved shipping inside stormbootx's
 the mlx4 integration: `scripts/build-nic-drivers.sh` builds this crate at the
 pin, and the `stormbootx-rustnic` media (`STORMNIC_DRIVERS`, default `ixgbe mlx4`)
 carries it. stormbootx ships no iPXE on any medium (stormbootx#91). The pin was `cf37f8b` (v0.2.1) as of 2026-10-04;
-stormbootx#66 pinned v0.2.3 (`0e50017`); stormbootx#104 pinned v0.2.5 (`04e7d2c`); stormbootx#195 pinned v0.2.8 (`f3d3bc2`, stormbootx v0.41.0); stormbootx#208 asks for v0.3.0. `--drivers DIR` is the manual media assembly
+stormbootx#66 pinned v0.2.3 (`0e50017`); stormbootx#104 pinned v0.2.5 (`04e7d2c`); stormbootx#195 pinned v0.2.8 (`f3d3bc2`, stormbootx v0.41.0); stormbootx#208 asks for v0.3.0, now v0.3.1 (`f801f0c`). `--drivers DIR` is the manual media assembly
 interface, not a way to retain an sc-build artifact. sc-build keeps no image.
 The media/golden work belongs to stormbootx; do not create a persistent build
 checkout or copy artifacts out of sc-build.
@@ -133,10 +133,12 @@ Open:
   `golden-stormbootx-rustnic-3a9c7bf19e9aba2d`, `mlx4@398a1a4`). 2026-11-14: no X9 SOL capture at that pin (server1/2/8
   still show 0.2.5). Asked the master with `wait-hardware` (server1, that golden). Left: that boot showing the line with
   link up; then close #31.
-- [ ] #34 review finding 04121d04251f (P0): a child freed while its device path was still installed. Fix: `src/teardown.rs`
-  (rollback on a refused path uninstall, child kept), `Child::uninstall` and Start's EBS-failure path use it; host test
-  `test/teardown.rs`. Then sc-build (both images, clippy, host tests, repro-check) and close #34. Majors 0ccfe0c92f79,
-  627bcdb9b490, 6aeccbfbe450 follow as P1.
+- [x] #34 review finding 04121d04251f (P0, v0.3.1 `f801f0c`, 2026-11-20): a child was freed while its device path was
+  still installed. `src/teardown.rs` rolls back on a refused path uninstall (SNP reinstalled, PCI I/O reopened, child
+  kept); `Child::uninstall` and Start's EBS-failure path use it. Host test `test/teardown.rs` (4). sc-build 870cef7: both
+  images, subsystem 11, clippy -D warnings, host tests 9 + 10 + 4 + 3, repro-check; f801f0c: --locked, repro-check
+  (sha256 `be8c5310…`, 110080 bytes). Pin v0.3.1 asked on stormbootx#208. Next: majors 0ccfe0c92f79 (snp.rs:201),
+  627bcdb9b490 (snp.rs:435), 6aeccbfbe450 (eth.rs:946) as P1.
 - [x] #7 identify/Start error paths logged (v0.2.8, `ae7b5d0`, 2026-11-07): `GetLocation` failure printed, NIC driven
   with location `?`; failed PCI ID read in `Start` printed, its status returned. sc-build: both images, no rustc or
   clippy warnings, host tests. A failed ID read in `Supported` stays silent (not known to be a ConnectX-3).

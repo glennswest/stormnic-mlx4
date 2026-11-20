@@ -5,6 +5,9 @@
 <!-- New unreleased changes go here -->
 
 ### 2026-11-20
+- **docs:** #34 done in v0.3.1 (work plan); v0.3.1 pin asked on stormbootx#208.
+
+### 2026-11-20
 - **fix:** A port child is no longer freed while its device path is still installed (#34, review finding 04121d04251f). `Child::uninstall` ignored a refused device-path uninstall and reported success, so `Stop` freed the child while the firmware's handle still pointed at the path (and the `WaitForPacket` event was closed under it). The teardown order is now `src/teardown.rs`: a refused path uninstall installs the SNP again, reopens the PCI I/O by the child, keeps the event and the child, and `Stop` returns `DEVICE_ERROR`. `Start`'s ExitBootServices-event failure path no longer frees the NIC when a child refuses to go; it keeps it for `Stop`. Host test `test/teardown.rs` (4 tests).
 
 ### 2026-11-18
