@@ -61,6 +61,15 @@ pub struct Child {
     status_calls: u32,
 }
 
+/// Why `Child::install` gave no working child.
+pub enum Installed {
+    /// Nothing is left installed.
+    Failed(Status),
+    /// The install could not be undone: the firmware still points into this
+    /// child, so it must be kept (never freed) and its NIC with it.
+    Kept(Status, Box<Child>),
+}
+
 fn mac32(mac: [u8; 6]) -> MacAddress {
     let mut a = [0u8; 32];
     a[..6].copy_from_slice(&mac);
@@ -111,7 +120,7 @@ impl Child {
         parent: *const DevicePathProtocol,
         agent: Handle,
         controller: Handle,
-    ) -> Result<Box<Child>, Status> {
+    ) -> Result<Box<Child>, Installed> {
         let n = unsafe { &mut *nic };
         let p = &n.eth.ports[port];
         let (num, mac, link) = (p.num(), p.mac(), p.link_up());
@@ -173,7 +182,7 @@ impl Child {
         let st = unsafe { (bs.create_event)(EventType::NOTIFY_WAIT, Tpl::CALLBACK, Some(wait_notify), ctx.cast(), &mut ev) };
         if st.is_error() {
             alarm!("  port {num}: WaitForPacket event: {st:?}");
-            return Err(st);
+            return Err(Installed::Failed(st));
         }
         c.snp.wait_for_packet = ev;
 
@@ -186,7 +195,7 @@ impl Child {
         if st.is_error() {
             alarm!("  port {num}: device path install: {st:?}");
             let _ = unsafe { (bs.close_event)(ev) };
-            return Err(st);
+            return Err(Installed::Failed(st));
         }
         let st = unsafe { (bs.install_protocol_interface)(&mut h, &snp_guid, InterfaceType::NATIVE_INTERFACE, (&raw const c.snp).cast()) };
         if st.is_error() {
@@ -195,13 +204,23 @@ impl Child {
                 let _ = (bs.uninstall_protocol_interface)(h, &path_guid, c.path.as_ptr().cast());
                 let _ = (bs.close_event)(ev);
             }
-            return Err(st);
+            return Err(Installed::Failed(st));
         }
         c.handle = h;
         let mut iface: *mut c_void = ptr::null_mut();
         let st = unsafe { (bs.open_protocol)(controller, &PciIo::GUID, &mut iface, agent, h, OPEN_BY_CHILD_CONTROLLER) };
         if st.is_error() {
-            say!("  port {num}: PCI I/O by child: {st:?}");
+            // Without the parent-child link the firmware never hands this
+            // child to Stop, so the NIC could not be taken down: undo the
+            // install (finding 0ccfe0c92f79, #36).
+            alarm!("  port {num}: PCI I/O by child: {st:?}; removing the child");
+            let mut steps = ChildSteps { c: &mut *c, agent, controller };
+            let outcome = teardown::undo_install(&mut steps);
+            if outcome.freeable() {
+                return Err(Installed::Failed(st));
+            }
+            alarm!("  port {num}: child removal refused ({outcome:?}); child kept");
+            return Err(Installed::Kept(st, c));
         }
         trace!(
             "  port {num}: SNP installed on a child handle, MAC {}, media {}",
@@ -232,6 +251,21 @@ impl Child {
             }
         }
         outcome.freeable()
+    }
+
+    /// Make `list` the multicast list: attached in hardware (`Eth::set_multicast`)
+    /// and in the mode structure. On a failure neither changes.
+    fn set_mcast(&mut self, list: &[[u8; 6]]) -> Result<(), ()> {
+        // SAFETY: the NIC outlives its children, and TPL_CALLBACK keeps
+        // every other user of it out.
+        let n = unsafe { &mut *self.nic };
+        let pci = unsafe { &mut *n.pci };
+        n.eth.set_multicast(&mut n.hca, pci, self.port, list).map_err(|_| ())?;
+        for (i, &m) in list.iter().enumerate() {
+            self.mode.mcast_filter[i] = mac32(m);
+        }
+        self.mode.mcast_filter_count = list.len() as u32;
+        Ok(())
     }
 
     fn port(&mut self) -> &mut eth::Port {
@@ -380,7 +414,8 @@ unsafe extern "efiapi" fn initialize(this: *const SimpleNetworkProtocol, _rx_ext
     // Unicast and broadcast from the start; a caller that wants otherwise
     // says so with ReceiveFilters.
     c.mode.receive_filter_setting = ReceiveFlags::UNICAST.bits() | ReceiveFlags::BROADCAST.bits();
-    c.mode.mcast_filter_count = 0;
+    // An empty list; a detach that fails stays tracked for the next change.
+    let _ = c.set_mcast(&[]);
     c.refresh();
     c.mode.state = NetworkState::INITIALIZED;
     let media = if bool::from(c.mode.media_present) { "present" } else { "absent" };
@@ -399,7 +434,7 @@ unsafe extern "efiapi" fn shutdown(this: *const SimpleNetworkProtocol) -> Status
     let (c, _tpl) = enter!(this);
     initialized!(c);
     c.mode.receive_filter_setting = 0;
-    c.mode.mcast_filter_count = 0;
+    let _ = c.set_mcast(&[]);
     c.mode.state = NetworkState::STARTED;
     trace!("stormnic-mlx4: port {} SNP: shut down", c.num());
     Status::SUCCESS
@@ -419,6 +454,8 @@ unsafe extern "efiapi" fn receive_filters(
     if enable.bits() & !FILTERS != 0 {
         return Status::INVALID_PARAMETER;
     }
+    // The multicast list after this call: none on a reset, the new list if
+    // one is given, else the current one (UEFI SNP ReceiveFilters).
     let mut new = Vec::new();
     if !reset_mcast && count != 0 {
         if count > MAX_MCAST || list.is_null() {
@@ -433,20 +470,13 @@ unsafe extern "efiapi" fn receive_filters(
     }
     // Disabling a filter that is not supported disables nothing.
     let setting = (c.mode.receive_filter_setting | enable.bits()) & !disable.bits();
-    let n = unsafe { &mut *c.nic };
-    let pci = unsafe { &mut *n.pci };
-    for &m in &new {
-        if n.eth.join(&mut n.hca, pci, c.port, m).is_err() {
+    if reset_mcast || !new.is_empty() {
+        // Hardware membership follows the list, as one step: groups no longer
+        // listed are detached, and a failure leaves the list as it was
+        // (finding 627bcdb9b490, #36).
+        if c.set_mcast(&new).is_err() {
             return Status::DEVICE_ERROR;
         }
-    }
-    if reset_mcast {
-        c.mode.mcast_filter_count = 0;
-    } else if !new.is_empty() {
-        for (i, &m) in new.iter().enumerate() {
-            c.mode.mcast_filter[i] = mac32(m);
-        }
-        c.mode.mcast_filter_count = new.len() as u32;
     }
     if setting != c.mode.receive_filter_setting || !new.is_empty() {
         trace!(

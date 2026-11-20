@@ -41,15 +41,30 @@ impl<E> Outcome<E> {
 
 pub fn take_down<S: Steps>(s: &mut S) -> Outcome<S::Error> {
     s.close_pci();
-    if let Err(e) = s.uninstall_snp() {
+    let outcome = remove(s);
+    if !outcome.freeable() {
         s.reopen_pci();
+    }
+    outcome
+}
+
+/// Undo an install whose `BY_CHILD_CONTROLLER` open of the parent's PCI I/O
+/// failed (review finding 0ccfe0c92f79, #36): without that open the firmware
+/// knows no parent-child link, so Stop would never be handed the child.
+/// There is no PCI open to close or put back; otherwise as `take_down`.
+pub fn undo_install<S: Steps>(s: &mut S) -> Outcome<S::Error> {
+    remove(s)
+}
+
+/// SNP, then device path, then the event; a refusal puts the SNP back.
+fn remove<S: Steps>(s: &mut S) -> Outcome<S::Error> {
+    if let Err(e) = s.uninstall_snp() {
         return Outcome::SnpRefused(e);
     }
     if let Err(e) = s.uninstall_path() {
         // The firmware still points at the path in the child's memory: put
         // the SNP back so the handle is whole again, and keep the child.
         let reinstalled = s.reinstall_snp();
-        s.reopen_pci();
         return Outcome::PathRefused { err: e, reinstalled };
     }
     s.close_event();

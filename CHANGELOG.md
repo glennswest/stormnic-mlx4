@@ -5,6 +5,10 @@
 <!-- New unreleased changes go here -->
 
 ### 2026-11-20
+- **fix:** A port child whose `OpenProtocol(BY_CHILD_CONTROLLER)` of the parent's PCI I/O fails is removed again instead of being kept as installed (#36, review finding 0ccfe0c92f79): without that open the firmware knows no parent-child link and never hands the child to `Stop`. `teardown::undo_install` uninstalls the SNP and the device path and closes the event; if the firmware refuses, the child is kept (never freed) and the NIC with it. Host tests `test/teardown.rs` 4 → 7.
+- **fix:** Multicast groups the SNP no longer lists are detached from the RX QP (#36, review finding 627bcdb9b490). `ReceiveFilters` (and `Initialize`/`Shutdown`, which empty the list) now make the hardware set the list: new groups are attached first, and a failure partway leaves the previous list and no partial memberships; then the dropped groups are detached (spec 5.4.1 "Detach"). An emptied overflow MCG entry is unlinked and reused, an emptied hash slot takes over the next entry of its chain, so rotating groups never fill the MCG table. The chain logic is the new `src/mcg.rs`; host test `test/mcg.rs` (12).
+
+### 2026-11-20
 - **docs:** #34 done in v0.3.1 (work plan); v0.3.1 pin asked on stormbootx#208.
 
 ### 2026-11-20

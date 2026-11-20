@@ -22,6 +22,7 @@ use crate::diag;
 use crate::dma::{Mem, PAGE};
 use crate::fw::{self, fail, Fail, Hca, PortInfo, Setup};
 use crate::hcr;
+use crate::mcg::{self, Amgm, Entry};
 use crate::pci::PciIo;
 
 /// Queue sizes: EQ entries (4.6), receive descriptors (5.6), send TXBBs (5.7).
@@ -200,9 +201,8 @@ struct Shared {
     lkey: u32,
     eq: Eq,
     mtt: Mtt,
-    /// Next free overflow (AMGM) entry in the MCG table (5.4.1).
-    next_amgm: u32,
-    mcgs: u32,
+    /// The MCG table's overflow (AMGM) entries, fresh and freed (5.4.1).
+    amgm: Amgm,
     b0: bool,
     /// VEP_MC_STEER: MGID_HASH op_mod and the RQP_CALC multicast mode.
     mc_steer: bool,
@@ -244,7 +244,8 @@ pub struct Port {
     done: VecDeque<usize>,
     /// An error completion put the TX QP in the error state (5.7).
     tx_broken: bool,
-    /// Multicast MACs attached to the RX QP (B0; never detached).
+    /// Multicast MACs attached to the RX QP (B0): the SNP's multicast list,
+    /// plus any whose detach failed (`mcg::sync`, finding 627bcdb9b490, #36).
     joined: Vec<[u8; 6]>,
     /// The link changed; its speed and module are not printed yet (`report_news`).
     news: bool,
@@ -401,18 +402,99 @@ impl Eth {
         }
     }
 
-    /// Receive frames sent to multicast `mac` on port `i` (5.4.1). In A0
-    /// mode multicast already reaches the RX QP (5.4.2), so there is nothing
-    /// to do; the SNP filters in software either way.
-    pub fn join(&mut self, hca: &mut Hca, pci: &mut PciIo, i: usize, mac: [u8; 6]) -> Result<(), Fail> {
-        let p = &self.ports[i];
-        if !self.sh.b0 || p.joined.contains(&mac) {
+    /// Receive frames sent to the multicast MACs `want` on port `i`, and no
+    /// longer to the ones attached before (5.4.1, `mcg::sync`): the SNP's
+    /// multicast list, applied as one step. In A0 mode multicast already
+    /// reaches the RX QP (5.4.2), so there is nothing to do; the SNP filters
+    /// in software either way. Broadcast stays attached from bring-up.
+    pub fn set_multicast(&mut self, hca: &mut Hca, pci: &mut PciIo, i: usize, want: &[[u8; 6]]) -> Result<(), Fail> {
+        if !self.sh.b0 {
             return Ok(());
         }
-        let (num, qpn) = (p.num, p.rx_qpn);
-        attach(hca, pci, &mut self.sh, num, mac, false, qpn)?;
-        self.ports[i].joined.push(mac);
+        let want: Vec<[u8; 6]> = want.iter().copied().filter(|m| *m != [0xff; 6]).collect();
+        let p = &mut self.ports[i];
+        let mut joined = core::mem::take(&mut p.joined);
+        let t = McgTable { hca, pci, mc_steer: self.sh.mc_steer };
+        let mut m = Steer { t, amgm: &mut self.sh.amgm, port: p.num, qpn: p.rx_qpn };
+        let r = mcg::sync(&mut m, &mut joined, &want);
+        let in_use = self.sh.amgm.in_use();
+        let p = &mut self.ports[i];
+        p.joined = joined;
+        match r {
+            Ok(0) => {}
+            Ok(n) => say!("  port {}: steering: {n} multicast detach(es) failed, kept for the next filter change", p.num),
+            Err(e) => return Err(e),
+        }
+        trace!("  port {}: steering: {} multicast MAC(s) attached, {in_use} overflow MCG entries in use", p.num, p.joined.len());
         Ok(())
+    }
+}
+
+/// The 5.4.1 commands as an `mcg::Table`.
+struct McgTable<'a> {
+    hca: &'a mut Hca,
+    pci: &'a mut PciIo,
+    /// MGID_HASH op_mod (capability bit 42).
+    mc_steer: bool,
+}
+
+const MGM_ENTRY: usize = 1 << fw::LOG_MGM_ENTRY;
+
+impl mcg::Table for McgTable<'_> {
+    type Error = Fail;
+    fn hash(&mut self, gid: &[u8; 16]) -> Result<u32, Fail> {
+        self.hca.hcr.inbox.zero();
+        self.hca.hcr.inbox.write(0, gid);
+        let r = self.hca.hcr.in_imm(self.pci, hcr::MGID_HASH, self.mc_steer as u8, 0);
+        Ok((self.hca.cmd(r)? & 0xffff) as u32)
+    }
+    fn read(&mut self, at: u32) -> Result<Entry, Fail> {
+        let r = self.hca.hcr.with_out(self.pci, hcr::READ_MCG, 0, at);
+        self.hca.cmd(r)?;
+        let mut b = [0u8; MGM_ENTRY];
+        self.hca.hcr.outbox.read(0, &mut b);
+        Ok(Entry::decode(&b))
+    }
+    fn write(&mut self, at: u32, e: &Entry) -> Result<(), Fail> {
+        let mut b = [0u8; MGM_ENTRY];
+        e.encode(&mut b);
+        self.hca.hcr.inbox.write(0, &b);
+        let r = self.hca.hcr.with_in(self.pci, hcr::WRITE_MCG, 0, at);
+        self.hca.cmd(r)
+    }
+}
+
+/// One port's RX QP joining and leaving multicast MACs, for `mcg::sync`.
+struct Steer<'a, 'b> {
+    t: McgTable<'b>,
+    amgm: &'a mut Amgm,
+    port: u8,
+    qpn: u32,
+}
+
+impl mcg::Members for Steer<'_, '_> {
+    type Error = Fail;
+    fn join(&mut self, mac: [u8; 6]) -> Result<(), Fail> {
+        attach(&mut self.t, self.amgm, self.port, mac, false, self.qpn)
+    }
+    fn leave(&mut self, mac: [u8; 6]) -> Result<(), Fail> {
+        let gid = mcg::gid(self.port, mac, false);
+        match mcg::detach(&mut self.t, self.amgm, &gid, self.qpn) {
+            Ok(was) => {
+                trace!("  steering: multicast {} -/-> QP {:#x}{}", Mac(mac), self.qpn, if was { "" } else { " (was not attached)" });
+                Ok(())
+            }
+            Err(e) => Err(mcg_fail(e, "detach", mac)),
+        }
+    }
+}
+
+fn mcg_fail(e: mcg::Error<Fail>, what: &str, mac: [u8; 6]) -> Fail {
+    match e {
+        mcg::Error::Cmd(f) => f,
+        mcg::Error::TableFull => fail!("steering {what} {}: MCG table full", Mac(mac)),
+        mcg::Error::EntryFull(at) => fail!("steering {what} {}: MCG entry {at:#x} is full", Mac(mac)),
+        mcg::Error::Loop(h) => fail!("steering {what} {}: MCG chain from {h:#x} loops", Mac(mac)),
     }
 }
 
@@ -539,8 +621,7 @@ fn shared(hca: &mut Hca, pci: &mut PciIo, s: &Setup) -> Result<Shared, Fail> {
         lkey,
         eq,
         mtt,
-        next_amgm: (t[fw::MCG].count / 2) as u32,
-        mcgs: t[fw::MCG].count as u32,
+        amgm: Amgm::new(t[fw::MCG].count as u32),
         b0: cap.b0(),
         mc_steer: cap.flag(42),
         counters,
@@ -634,8 +715,9 @@ fn port_up(hca: &mut Hca, pci: &mut PciIo, sh: &mut Shared, s: &Setup, p: &PortI
 
     // 5.4.1: B0 steering entries after INIT_PORT: our MAC and broadcast.
     if sh.b0 {
-        attach(hca, pci, sh, p.num, p.mac, true, rx_qpn)?;
-        attach(hca, pci, sh, p.num, [0xff; 6], false, rx_qpn)?;
+        let mut t = McgTable { hca: &mut *hca, pci: &mut *pci, mc_steer: sh.mc_steer };
+        attach(&mut t, &mut sh.amgm, p.num, p.mac, true, rx_qpn)?;
+        attach(&mut t, &mut sh.amgm, p.num, [0xff; 6], false, rx_qpn)?;
     }
     // 5.4.3: no port multicast filter; steering decides.
     let r = hca.hcr.imm(pci, hcr::SET_MCAST_FLTR, 1, u32::from(p.num), 0);
@@ -778,88 +860,16 @@ fn set_port(hca: &mut Hca, pci: &mut PciIo, sh: &Shared, p: &PortInfo, rx_qpn: u
 }
 
 /// 5.4.1: add `qpn` to the MCG entry for this MAC, creating it if needed.
-fn attach(hca: &mut Hca, pci: &mut PciIo, sh: &mut Shared, port: u8, mac: [u8; 6], unicast: bool, qpn: u32) -> Result<(), Fail> {
-    let mut gid = [0u8; 16];
-    gid[5] = port;
-    gid[7] = if unicast { 0x02 } else { 0x00 };
-    gid[10..].copy_from_slice(&mac);
-    let entry = 1usize << fw::LOG_MGM_ENTRY;
-
-    hca.hcr.inbox.zero();
-    hca.hcr.inbox.write(0, &gid);
-    let r = hca.hcr.in_imm(pci, hcr::MGID_HASH, sh.mc_steer as u8, 0);
-    let hash = (hca.cmd(r)? & 0xffff) as u32;
-
-    // Walk the chain from the hash slot: a free slot, our GID, or its end.
-    let (mut at, mut last) = (hash, None);
-    let found = loop {
-        let r = hca.hcr.with_out(pci, hcr::READ_MCG, 0, at);
-        hca.cmd(r)?;
-        let o = &hca.hcr.outbox;
-        let members = o.be32(0x04);
-        if members & 0xff_ffff == 0 && at == hash {
-            break None;
-        }
-        let mut g = [0u8; 16];
-        o.read(0x10, &mut g);
-        if g == gid && members >> 30 == 1 {
-            break Some(members & 0xff_ffff);
-        }
-        let next = o.be32(0x00) >> 6;
-        if next == 0 {
-            last = Some(at);
-            at = sh.next_amgm;
-            if at >= sh.mcgs {
-                return Err(fail!("MCG table full"));
-            }
-            sh.next_amgm += 1;
-            break None;
-        }
-        at = next;
-    };
-
-    let m = &hca.hcr.inbox;
-    let count = match found {
-        Some(n) => {
-            m.zero();
-            for i in (0..entry).step_by(4) {
-                m.set_be32(i, hca.hcr.outbox.be32(i));
-            }
-            if (0..n as usize).any(|i| m.be32(0x20 + 4 * i) & 0xff_ffff == qpn) {
-                return Ok(());
-            }
-            n
-        }
-        None => {
-            m.zero();
-            m.write(0x10, &gid);
-            0
-        }
-    };
-    if 0x20 + 4 * (count as usize + 1) > entry {
-        return Err(fail!("MCG entry {at:#x} is full"));
-    }
-    m.set_be32(0x20 + 4 * count as usize, qpn);
-    m.set_be32(0x04, (count + 1) | 1 << 30);
-    let r = hca.hcr.with_in(pci, hcr::WRITE_MCG, 0, at);
-    hca.cmd(r)?;
-
-    // A new overflow entry: link it from the end of the chain.
-    if let Some(prev) = last {
-        let r = hca.hcr.with_out(pci, hcr::READ_MCG, 0, prev);
-        hca.cmd(r)?;
-        let m = &hca.hcr.inbox;
-        for i in (0..entry).step_by(4) {
-            m.set_be32(i, hca.hcr.outbox.be32(i));
-        }
-        m.set_be32(0x00, at << 6);
-        let r = hca.hcr.with_in(pci, hcr::WRITE_MCG, 0, prev);
-        hca.cmd(r)?;
-    }
+fn attach(t: &mut McgTable, amgm: &mut Amgm, port: u8, mac: [u8; 6], unicast: bool, qpn: u32) -> Result<(), Fail> {
+    let gid = mcg::gid(port, mac, unicast);
+    let a = mcg::attach(t, amgm, &gid, qpn, mcg::capacity(MGM_ENTRY)).map_err(|e| mcg_fail(e, "attach", mac))?;
     trace!(
-        "  steering: {} {} -> QP {qpn:#x} (MCG entry {at:#x}, hash {hash:#x})",
+        "  steering: {} {} -> QP {qpn:#x} (MCG entry {:#x}, hash {:#x}{})",
         if unicast { "unicast" } else { "multicast" },
-        Mac(mac)
+        Mac(mac),
+        a.at,
+        a.hash,
+        if a.added { "" } else { ", already a member" }
     );
     Ok(())
 }

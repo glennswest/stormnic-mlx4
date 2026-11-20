@@ -32,6 +32,7 @@ mod dma;
 mod eth;
 mod fw;
 mod hcr;
+mod mcg;
 mod module;
 mod pci;
 mod snp;
@@ -283,7 +284,13 @@ unsafe extern "efiapi" fn start(
     for i in 0..n.eth.ports.len() {
         match unsafe { snp::Child::install(nic, i, path.cast(), agent, controller) } {
             Ok(c) => n.children.push(c),
-            Err(_) => alarm!("{tag}: port {}: no SNP", n.eth.ports[i].num()),
+            Err(snp::Installed::Failed(_)) => alarm!("{tag}: port {}: no SNP", n.eth.ports[i].num()),
+            Err(snp::Installed::Kept(_, c)) => {
+                // Its handle could not be removed (#36): keep it, so the NIC
+                // it points into is never freed.
+                alarm!("{tag}: port {}: SNP child without a PCI I/O link, kept", n.eth.ports[i].num());
+                n.children.push(c);
+            }
         }
     }
     if n.children.is_empty() {

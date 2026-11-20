@@ -139,6 +139,9 @@ Open:
   images, subsystem 11, clippy -D warnings, host tests 9 + 10 + 4 + 3, repro-check; f801f0c: --locked, repro-check
   (sha256 `be8c5310…`, 110080 bytes). Pin v0.3.1 asked on stormbootx#208. Next: majors 0ccfe0c92f79 (snp.rs:201),
   627bcdb9b490 (snp.rs:435), 6aeccbfbe450 (eth.rs:946) as P1.
+- [ ] #36 review findings 0ccfe0c92f79 (snp.rs:201, child whose PCI I/O open by child fails is now removed,
+  `teardown::undo_install`) and 627bcdb9b490 (snp.rs:435, multicast detach and transactional list, `src/mcg.rs`).
+  Host tests `test/teardown.rs` (7), `test/mcg.rs` (12). Next: #37 (eth.rs:946, major 6aeccbfbe450).
 - [x] #7 identify/Start error paths logged (v0.2.8, `ae7b5d0`, 2026-11-07): `GetLocation` failure printed, NIC driven
   with location `?`; failed PCI ID read in `Start` printed, its status returned. sc-build: both images, no rustc or
   clippy warnings, host tests. A failed ID read in `Supported` stays silent (not known to be a ConnectX-3).

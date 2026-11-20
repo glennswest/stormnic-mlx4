@@ -3,7 +3,7 @@
 //! path are both uninstalled. Run by `scripts/test-host.sh`.
 #[path = "../src/teardown.rs"]
 mod teardown;
-use teardown::{take_down, Outcome, Steps};
+use teardown::{take_down, undo_install, Outcome, Steps};
 
 /// A child handle in simulated firmware.
 struct Fw {
@@ -115,4 +115,44 @@ fn path_refused_and_reinstall_refused_still_keeps_the_child() {
     assert_eq!(o, Outcome::PathRefused { err: "ACCESS_DENIED", reinstalled: Err("OUT_OF_RESOURCES") });
     assert!(!o.freeable());
     assert!(f.path && f.event);
+}
+
+/// Finding 0ccfe0c92f79 (#36): the PCI I/O open by the child failed, so the
+/// install is undone, never touching a PCI open that does not exist.
+fn not_opened() -> Fw {
+    let mut f = Fw::new();
+    f.pci_open = false;
+    f
+}
+
+#[test]
+fn undo_install_removes_both_protocols_and_the_event() {
+    let mut f = not_opened();
+    let o = undo_install(&mut f);
+    assert_eq!(o, Outcome::Gone);
+    assert!(o.freeable());
+    assert!(!f.snp && !f.path && !f.event && !f.pci_open);
+    assert_eq!(f.log, ["uninstall_snp", "uninstall_path", "close_event"]);
+}
+
+#[test]
+fn undo_install_snp_refused_keeps_the_child_without_a_pci_open() {
+    let mut f = not_opened();
+    f.refuse_snp = true;
+    let o = undo_install(&mut f);
+    assert_eq!(o, Outcome::SnpRefused("ACCESS_DENIED"));
+    assert!(!o.freeable());
+    assert!(f.snp && f.path && f.event && !f.pci_open);
+    assert!(!f.log.contains(&"reopen_pci") && !f.log.contains(&"close_pci"));
+}
+
+#[test]
+fn undo_install_path_refused_keeps_the_child_and_puts_the_snp_back() {
+    let mut f = not_opened();
+    f.refuse_path = true;
+    let o = undo_install(&mut f);
+    assert_eq!(o, Outcome::PathRefused { err: "ACCESS_DENIED", reinstalled: Ok(()) });
+    assert!(!o.freeable());
+    assert!(f.snp && f.path && f.event && !f.pci_open);
+    assert!(!f.log.contains(&"reopen_pci"));
 }

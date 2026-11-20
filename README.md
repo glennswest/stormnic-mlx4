@@ -84,8 +84,13 @@ The shipped image is the default build. Use the variable to make it verbose.
   device has sent it. `Initialize` enables unicast and broadcast. `Statistics`,
   `StationAddress` and `NvData` return `UNSUPPORTED`. Frames the adapter loops
   back from the port's own MAC are dropped; the first is logged (spec 7 item 14).
+  With B0 steering the multicast list is mirrored in the MCG table (spec 5.4.1,
+  `src/mcg.rs`): `ReceiveFilters` attaches the new groups, detaches the ones no
+  longer listed (also on `Initialize` and `Shutdown`), and on a failure leaves
+  the list and the table as they were; emptied overflow entries are reused.
 - **Consumes:** `EFI_PCI_IO_PROTOCOL` on the controller, opened `BY_DRIVER`
-  while started and `BY_CHILD_CONTROLLER` by each child (a minimal binding in
+  while started and `BY_CHILD_CONTROLLER` by each child (a child whose open
+  fails is removed again, so `Stop` is always handed every child) (a minimal binding in
   `src/pci.rs`: config-space reads/writes, BAR memory reads/writes,
   `AllocateBuffer`/`Map`/`Unmap`/`FreeBuffer` for DMA common buffers,
   `Attributes`, `GetBarAttributes` and `GetLocation`), the controller's device
@@ -120,7 +125,9 @@ code against simulated firmware (`test/bars.rs`: EDK2 and AMI BAR numbering) and
 the link-diagnostics decoding (`test/module.rs`: module EEPROM fields, MAD
 status codes, request splitting, PTYS link modes; spec 5.11–5.12) and the
 quiet console's replay ring (`test/trace.rs`, #16) and the child teardown
-order under firmware refusals (`test/teardown.rs`, #34).
+order under firmware refusals (`test/teardown.rs`, #34, #36), and the MCG
+chain attach/detach and multicast list sync against a simulated table
+(`test/mcg.rs`, #36).
 The media and rate names of the per-port line (#31) are in `test/module.rs`.
 Run it through `sc-build 'scripts/test-host.sh'`.
 
