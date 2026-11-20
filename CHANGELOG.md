@@ -81,6 +81,12 @@
 - **docs:** #1 recheck: server1 has still not booted the rustnic media; pass accepts 0.1.0 or 0.2.0, current golden named (work plan).
 - **docs:** #4 waits on stormbootx#50 (pin v0.2.0 on the rustnic media) for the server1 `tcp4 : available` check
 
+## [v0.3.1] — 2026-11-20
+
+### Fixed
+- A port child is freed only when its SNP and its device path are both uninstalled; a refused device-path uninstall puts the SNP back and keeps the child (#34, finding 04121d04251f). Start's ExitBootServices-event failure path keeps the NIC for `Stop` when a child refuses to go.
+- The SFP module EEPROM trace line says `diagnostics present` / `diagnostics absent`, not `diagnostics not implemented` (#33). <!-- stub-sweep: allow -->
+
 ## [v0.3.0] — 2026-11-13
 
 ### Added
