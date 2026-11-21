@@ -9,7 +9,6 @@
 //! the `Hca` undo stack, so `fw::close` and `fw::quiesce` run 6.4's order.
 //! Object numbers are per port (4.1), so both ports can be up at once.
 
-use alloc::collections::VecDeque;
 use alloc::string::String;
 use alloc::vec;
 use alloc::vec::Vec;
@@ -24,6 +23,7 @@ use crate::fw::{self, fail, Fail, Hca, PortInfo, Setup};
 use crate::hcr;
 use crate::mcg::{self, Amgm, Entry};
 use crate::pci::PciIo;
+use crate::sent::Sent;
 
 /// Queue sizes: EQ entries (4.6), receive descriptors (5.6), send TXBBs (5.7).
 const EQ_ENTRIES: u32 = 256;
@@ -50,8 +50,9 @@ const CQE_ERROR: u8 = 0x1e;
 const OP_SEND: u32 = 0x0a;
 /// Largest frame the SNP hands over: MTU 1500 + the 14-byte header (5.9).
 pub const MAX_FRAME: usize = 1514;
-/// Sent buffers waiting for `GetStatus` to hand them back; beyond this the
-/// oldest are forgotten (a caller that never asks does not grow the list).
+/// Sent buffers waiting for `GetStatus` to hand them back, plus frames in
+/// flight; at this many `send` refuses (`Full`) until the caller collects
+/// them. None is ever forgotten (`sent.rs`, finding 6aeccbfbe450, #37).
 const DONE_MAX: usize = 1024;
 
 fn ms(n: u32) -> Duration {
@@ -241,7 +242,7 @@ pub struct Port {
     tx_done: u32,
     /// The caller's buffer for each send slot, and the ones sent (6.2 step 4).
     tokens: Vec<usize>,
-    done: VecDeque<usize>,
+    done: Sent,
     /// An error completion put the TX QP in the error state (5.7).
     tx_broken: bool,
     /// Multicast MACs attached to the RX QP (B0): the SNP's multicast list,
@@ -744,7 +745,7 @@ fn port_up(hca: &mut Hca, pci: &mut PciIo, sh: &mut Shared, s: &Setup, p: &PortI
         tx_prod: 0,
         tx_done: 0,
         tokens: vec![0; TX_TXBBS as usize],
-        done: VecDeque::new(),
+        done: Sent::new(DONE_MAX),
         tx_broken: false,
         joined: Vec::new(),
         news: false,
@@ -962,10 +963,7 @@ impl Port {
             let slot = (self.tx_done % TX_TXBBS) as usize;
             let owner = (self.tx_done / TX_TXBBS) & 1;
             self.sq.set_be32(slot * TXBB, 0x7fff_ffff | owner << 31);
-            if self.done.len() >= DONE_MAX {
-                self.done.pop_front();
-            }
-            self.done.push_back(self.tokens[slot]);
+            self.done.push(self.tokens[slot]);
             self.tx_done = self.tx_done.wrapping_add(1);
             self.tx_cq.pop();
         }
@@ -974,7 +972,7 @@ impl Port {
     /// A buffer whose frame has gone out (6.2 step 4).
     pub fn take_sent(&mut self) -> Option<usize> {
         self.reap_tx();
-        self.done.pop_front()
+        self.done.take()
     }
 
     pub fn sent_pending(&mut self) -> bool {
@@ -993,7 +991,11 @@ impl Port {
         if frame.len() > BUF {
             return Err(Send::TooLong);
         }
-        if self.tx_prod.wrapping_sub(self.tx_done) >= TX_TXBBS - HEADROOM - 1 {
+        let in_flight = self.tx_prod.wrapping_sub(self.tx_done);
+        // Room on the ring, and room in the list for its token once it is
+        // sent: a caller that does not call GetStatus gets NOT_READY rather
+        // than losing a buffer (6.2 step 4, finding 6aeccbfbe450, #37).
+        if in_flight >= TX_TXBBS - HEADROOM - 1 || !self.done.admits(in_flight as usize) {
             return Err(Send::Full);
         }
         let slot = (self.tx_prod % TX_TXBBS) as usize;

@@ -142,6 +142,8 @@ Open:
 - [ ] #36 review findings 0ccfe0c92f79 (snp.rs:201, child whose PCI I/O open by child fails is now removed,
   `teardown::undo_install`) and 627bcdb9b490 (snp.rs:435, multicast detach and transactional list, `src/mcg.rs`).
   Host tests `test/teardown.rs` (7), `test/mcg.rs` (12). Next: #37 (eth.rs:946, major 6aeccbfbe450).
+- [ ] #37 review finding 6aeccbfbe450 (eth.rs:946): sent tokens were dropped past 1024 uncollected. `src/sent.rs`
+  keeps every one; `send` refuses (`NOT_READY`) while in flight + uncollected = 1024. Host test `test/sent.rs` (4).
 - [x] #7 identify/Start error paths logged (v0.2.8, `ae7b5d0`, 2026-11-07): `GetLocation` failure printed, NIC driven
   with location `?`; failed PCI ID read in `Start` printed, its status returned. sc-build: both images, no rustc or
   clippy warnings, host tests. A failed ID read in `Supported` stays silent (not known to be a ConnectX-3).

@@ -35,6 +35,7 @@ mod hcr;
 mod mcg;
 mod module;
 mod pci;
+mod sent;
 mod snp;
 mod teardown;
 mod trace;

@@ -81,7 +81,9 @@ The shipped image is the default build. Use the variable to make it verbose.
   modes), MAC not changeable, `MediaPresent` from port-change events (or
   QUERY_PORT when MAP_EQ failed), `WaitForPacket`, `MCastIpToMac`. `Transmit`
   copies the frame, and `GetStatus` hands the caller's buffer back once the
-  device has sent it. `Initialize` enables unicast and broadcast. `Statistics`,
+  device has sent it; every buffer comes back. With 1024 buffers in flight or
+  not yet collected, `Transmit` returns `NOT_READY` until `GetStatus` is called
+  (#37). `Initialize` enables unicast and broadcast. `Statistics`,
   `StationAddress` and `NvData` return `UNSUPPORTED`. Frames the adapter loops
   back from the port's own MAC are dropped; the first is logged (spec 7 item 14).
   With B0 steering the multicast list is mirrored in the MCG table (spec 5.4.1,
@@ -127,7 +129,8 @@ status codes, request splitting, PTYS link modes; spec 5.11–5.12) and the
 quiet console's replay ring (`test/trace.rs`, #16) and the child teardown
 order under firmware refusals (`test/teardown.rs`, #34, #36), and the MCG
 chain attach/detach and multicast list sync against a simulated table
-(`test/mcg.rs`, #36).
+(`test/mcg.rs`, #36), and the sent-buffer list's backpressure
+(`test/sent.rs`, #37).
 The media and rate names of the per-port line (#31) are in `test/module.rs`.
 Run it through `sc-build 'scripts/test-host.sh'`.
 
