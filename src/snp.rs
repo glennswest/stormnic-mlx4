@@ -214,7 +214,7 @@ impl Child {
             // child to Stop, so the NIC could not be taken down: undo the
             // install (finding 0ccfe0c92f79, #36).
             alarm!("  port {num}: PCI I/O by child: {st:?}; removing the child");
-            let mut steps = ChildSteps { c: &mut *c, agent, controller };
+            let mut steps = ChildSteps { c: &mut c, agent, controller };
             let outcome = teardown::undo_install(&mut steps);
             if outcome.freeable() {
                 return Err(Installed::Failed(st));

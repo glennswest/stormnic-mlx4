@@ -285,11 +285,11 @@ unsafe extern "efiapi" fn start(
     for i in 0..n.eth.ports.len() {
         match unsafe { snp::Child::install(nic, i, path.cast(), agent, controller) } {
             Ok(c) => n.children.push(c),
-            Err(snp::Installed::Failed(_)) => alarm!("{tag}: port {}: no SNP", n.eth.ports[i].num()),
-            Err(snp::Installed::Kept(_, c)) => {
+            Err(snp::Installed::Failed(st)) => alarm!("{tag}: port {}: no SNP ({st:?})", n.eth.ports[i].num()),
+            Err(snp::Installed::Kept(st, c)) => {
                 // Its handle could not be removed (#36): keep it, so the NIC
                 // it points into is never freed.
-                alarm!("{tag}: port {}: SNP child without a PCI I/O link, kept", n.eth.ports[i].num());
+                alarm!("{tag}: port {}: SNP child without a PCI I/O link ({st:?}), kept", n.eth.ports[i].num());
                 n.children.push(c);
             }
         }

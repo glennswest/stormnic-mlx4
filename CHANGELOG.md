@@ -6,6 +6,7 @@
 
 ### 2026-11-20
 - **fix:** A sent buffer is never dropped before `GetStatus` hands it back (#37, review finding 6aeccbfbe450). After 1024 completed sends nobody had collected, `reap_tx` forgot the oldest, so that caller could never reclaim its buffer. Now `Transmit` returns `NOT_READY` while the frames in flight plus the uncollected buffers number 1024, and every buffer comes back, in send order. The list is the new `src/sent.rs`; host test `test/sent.rs` (4).
+- **fix:** Clippy warnings from #36 (build failure #38): the status of a failed or kept port child is now printed in Start's `no SNP` / `kept` lines (it was carried and never read), and an explicit `&mut *` reborrow in `Child::install` is gone.
 
 ### 2026-11-20
 - **fix:** A port child whose `OpenProtocol(BY_CHILD_CONTROLLER)` of the parent's PCI I/O fails is removed again instead of being kept as installed (#36, review finding 0ccfe0c92f79): without that open the firmware knows no parent-child link and never hands the child to `Stop`. `teardown::undo_install` uninstalls the SNP and the device path and closes the event; if the firmware refuses, the child is kept (never freed) and the NIC with it. Host tests `test/teardown.rs` 4 → 7.
