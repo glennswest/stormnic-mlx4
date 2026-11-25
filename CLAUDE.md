@@ -146,9 +146,10 @@ Open:
   images, subsystem 11, clippy -D warnings, host tests 9 + 10 + 4 + 3, repro-check; f801f0c: --locked, repro-check
   (sha256 `be8c5310…`, 110080 bytes). Pin v0.3.1 asked on stormbootx#208. Next: majors 0ccfe0c92f79 (snp.rs:201),
   627bcdb9b490 (snp.rs:435), 6aeccbfbe450 (eth.rs:946) as P1.
-- [ ] #36 review findings 0ccfe0c92f79 (snp.rs:201, child whose PCI I/O open by child fails is now removed,
+- [x] #36 review findings 0ccfe0c92f79 (snp.rs:201, child whose PCI I/O open by child fails is now removed,
   `teardown::undo_install`) and 627bcdb9b490 (snp.rs:435, multicast detach and transactional list, `src/mcg.rs`).
-  Host tests `test/teardown.rs` (7), `test/mcg.rs` (12). Next: #37 (eth.rs:946, major 6aeccbfbe450).
+  Host tests `test/teardown.rs` (7), `test/mcg.rs` (12). Fixed in `d9c2928`; closed 2026-11-25 on sc-build
+  `7b70e90` (job dc8b67e6fe): both images subsystem 11, clippy -D warnings both features, host tests 9+12+10+4+7+3.
 - [x] #37 review finding 6aeccbfbe450 (eth.rs:946, `b284b17`, 2026-11-21): sent tokens were dropped past 1024
   uncollected. `src/sent.rs` keeps every one; `send` refuses (`NOT_READY`) while in flight + uncollected = 1024. Host
   test `test/sent.rs` (4). #38 (clippy on #36's code) fixed in `c09ba60`. sc-build c09ba60: both images, subsystem 11,
