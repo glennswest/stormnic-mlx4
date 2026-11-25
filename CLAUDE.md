@@ -121,8 +121,10 @@ Open:
   second line, `port 1: link up`, from the bring-up link wait; **v0.2.7 (`e961b52`)** makes that trace only (sc-build:
   both images, subsystem 11, host tests, repro-check). Pinned v0.2.8 by stormbootx#195 (stormbootx v0.41.0, `cae61d3`, rustnic golden
   `mlx4@f3d3bc2`). 2026-11-10: no X9 SOL capture at that pin yet (server1/2/8 last booted `mlx4@04e7d2c`; only
-  pvetest1/2, no ConnectX-3). Asked the master with `wait-hardware` (server1, v0.41.0 rustnic). Left: that boot
-  showing exactly the one line per port; then close #16.
+  pvetest1/2, no ConnectX-3). 2026-11-24: still none (server1/2/8 SOL: only `mlx4@04e7d2c`; newer pins only on
+  forge1, C2NR0Q2, pvetest1/2, no ConnectX-3). The master cancelled the `wait-hardware` item: hardware time is the
+  owner's to schedule (#16, master comment). Left, **owner names the machine and day**: an X9 rustnic boot at the
+  current pin showing exactly one line per port (v0.3.x wording, #31), no `port 1: link up`, no trace; then close #16.
 - [ ] #31 the stormnic port contract (owner, 2026-11-14): the driver brings its port up itself with the IEEE
   standard FEC for its media/speed and prints one line per port (driver, PCI address, MAC, media, speed, FEC,
   link). ConnectX-3 runs 1G/10G/40G (and 20G/56G, no IEEE FEC): the standard is **none** at every speed it runs,
