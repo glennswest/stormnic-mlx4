@@ -103,7 +103,9 @@ Open:
   server1/2/7/8 show `mlx4_core` probing cleanly after the hand-off; `STARTING KERNEL` → kernel clock ≤ 1.0 s
   (`.log.times`, 36 boots). **15, bus-master-only fallback (6.4 HW-CHECK): in progress.** No boot exercised it. Branch
   `test/ebs-fallback` (never merged) makes ExitBootServices skip the command sequence; a rustnic boot at that ref
-  (master, `wait-hardware`) must show `mlx4_core` probing cleanly. Then record it in §7.1 and close #12.
+  must show `mlx4_core` probing cleanly. 2026-11-24: no capture has the `TEST BUILD` line. **Parked** with
+  `wait-hardware --machine server1`, media a stormbootx 9531607 rustnic build with `STORMNIC_MLX4_REF=4e21540`. Then
+  record it in §7.1 and close #12.
 - [ ] #17 DAC link diagnostics, now specified (#20 done 2026-10-06: spec 5.11–5.13, HW-checks 17–19). Item 1
   (module EEPROM via MAD_IFC 0xFF60, spec 5.11) can be built. Items 2–3 need PTYS, gated on QUERY_DEV_CAP 0x7a
   bit 5, which the blades' firmware 2.30.8000 leaves 0 (spec 5.13): log that, no speed setting (stormbootx#80).
@@ -112,8 +114,9 @@ Open:
   write (item 3 is not offered on the blades, 5.13). sc-build passes (subsystem 11, host tests 9 + 8). Pin asked in
   stormbootx#104 — pinned v0.2.5 (`04e7d2c`, stormbootx 10e9377). Checked 2026-11-07: quiet v0.2.5 boots on
   server1/2/8 (stormbootx 0.29.0) show only the per-port line (link up, so no #17 lines); no SOL capture has a
-  verbose boot. Left: a **verbose** X9 rustnic boot (`nic_verbose = true`, stormbootx#80/#102), asked of the master
-  with `wait-hardware` (server1); record HW-checks 17–18 in spec §7.1, then close #17.
+  verbose boot. Left: a **verbose** X9 rustnic boot (`nic_verbose = true`, stormbootx#80/#102), 2026-11-24: **parked** with
+  `wait-hardware --machine server1`, media `golden-stormbootx-rustnic-77b37e30fd87e0f2` booted verbose. Then record HW-checks 17–18 in
+  spec §7.1 and close #17.
 - [ ] #16 quiet console by default, trace behind a verbose switch. **Built in v0.2.5 (`04e7d2c`, 2026-10-06)**, ixgbe#22's
   shape: `src/console.rs` (`say!`/`trace!`/`alarm!`/`note!`), `src/trace.rs` (16-line replay ring, `test/trace.rs`),
   `verbose` feature, `StormnicVerbose` (GUID ce1479a2-…-c909ea5b8e0b). sc-build passes (both images, host tests
@@ -122,9 +125,10 @@ Open:
   both images, subsystem 11, host tests, repro-check). Pinned v0.2.8 by stormbootx#195 (stormbootx v0.41.0, `cae61d3`, rustnic golden
   `mlx4@f3d3bc2`). 2026-11-10: no X9 SOL capture at that pin yet (server1/2/8 last booted `mlx4@04e7d2c`; only
   pvetest1/2, no ConnectX-3). 2026-11-24: still none (server1/2/8 SOL: only `mlx4@04e7d2c`; newer pins only on
-  forge1, C2NR0Q2, pvetest1/2, no ConnectX-3). The master cancelled the `wait-hardware` item: hardware time is the
-  owner's to schedule (#16, master comment). Left, **owner names the machine and day**: an X9 rustnic boot at the
-  current pin showing exactly one line per port (v0.3.x wording, #31), no `port 1: link up`, no trace; then close #16.
+  forge1, C2NR0Q2, pvetest1/2, no ConnectX-3). Master, 2026-11-24: hardware boots are the master's, never the owner's.
+  **Parked** with `wait-hardware --machine server1 --media `golden-stormbootx-rustnic-77b37e30fd87e0f2`` (stormbootx 9531607, mlx4 `398a1a4`,
+  v0.3.0), one boot with #31. Pass: exactly one line per port in the v0.3.0 wording, no `port 1: link up`, no trace;
+  then close #16.
 - [ ] #31 the stormnic port contract (owner, 2026-11-14): the driver brings its port up itself with the IEEE
   standard FEC for its media/speed and prints one line per port (driver, PCI address, MAC, media, speed, FEC,
   link). ConnectX-3 runs 1G/10G/40G (and 20G/56G, no IEEE FEC): the standard is **none** at every speed it runs,
@@ -133,8 +137,9 @@ Open:
   is an `ERROR: … LINK DOWN` line. sc-build: both images, subsystem 11, clippy -D warnings, host tests 9 + 10 + 3,
   repro-check (sha256 `86b6f4c0…`, 109056 bytes). Pinned by stormbootx#208 (`57802be`; rustnic golden
   `golden-stormbootx-rustnic-3a9c7bf19e9aba2d`, `mlx4@398a1a4`). 2026-11-14: no X9 SOL capture at that pin (server1/2/8
-  still show 0.2.5). Asked the master with `wait-hardware` (server1, that golden). Left: that boot showing the line with
-  link up; then close #31.
+  still show 0.2.5). 2026-11-24: still none. **Parked** with `wait-hardware --machine server1 --media
+  `golden-stormbootx-rustnic-77b37e30fd87e0f2`` (stormbootx 9531607, mlx4 `398a1a4`), the same boot as #16. Left: that boot showing the line
+  with link up; then close #31.
 - [x] #34 review finding 04121d04251f (P0, v0.3.1 `f801f0c`, 2026-11-20): a child was freed while its device path was
   still installed. `src/teardown.rs` rolls back on a refused path uninstall (SNP reinstalled, PCI I/O reopened, child
   kept); `Child::uninstall` and Start's EBS-failure path use it. Host test `test/teardown.rs` (4). sc-build 870cef7: both
